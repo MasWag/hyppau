@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "description": "JSON file representing an NFAH.",
+  "properties": {
+    "dimensions": {
+      "description": "The number of variables in the NFAH.",
+      "type": "integer"
+    },
+    "states": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The unique identifier of the state.",
+            "type": "integer"
+          },
+          "is_initial": {
+            "description": "Whether the state is an initial state.",
+            "type": "boolean"
+          },
+          "is_final": {
+            "description": "Whether the state is a final state.",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "is_initial", "is_final"],
+        "additionalProperties": false
+      }
+    },
+    "transitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "description": "The unique identifier of the state from which the transition originates.",
+            "type": "integer"
+          },
+          "to": {
+            "description": "The unique identifier of the state to which the transition leads.",
+            "type": "integer"
+          },
+          "label": {
+            "description": "The label of the transition. It is a pair (a, i) where a is a string representing an action and i is an integer representing the variable.",
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": [
+              {
+                "description": "The action of the transition.",
+                "type": "string"
+              },
+              {
+                "description": "The variable of the transition.",
+                "type": "integer"
+              }
+            ]
+          }
+        },
+        "required": ["from", "to", "label"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["dimensions", "states", "transitions"],
+  "additionalProperties": false
+}

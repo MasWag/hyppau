@@ -1,0 +1,42 @@
+{
+  "dimensions": 2,
+  "states": [
+    { "id": 0, "is_initial": true, "is_final": false },
+    { "id": 1, "is_initial": false, "is_final": false },
+    { "id": 2, "is_initial": false, "is_final": false },
+    { "id": 3, "is_initial": false, "is_final": false },
+    { "id": 4, "is_initial": false, "is_final": false },
+    { "id": 5, "is_initial": false, "is_final": false },
+    { "id": 6, "is_initial": false, "is_final": true }
+  ],
+  "transitions": [
+    { "from": 0, "to": 1, "label": ["sq", 0] },
+    { "from": 1, "to": 2, "label": ["sp", 1] },
+    { "from": 2, "to": 3, "label": ["q", 0] },
+    { "from": 3, "to": 4, "label": ["p", 1] },
+    { "from": 4, "to": 2, "label": ["p", 1] },
+    { "from": 2, "to": 5, "label": ["eq", 0] },
+    { "from": 5, "to": 6, "label": ["ep", 1] },
+
+    { "from": 2, "to": 2, "label": ["sp", 0] },
+    { "from": 2, "to": 2, "label": ["p", 0] },
+    { "from": 2, "to": 2, "label": ["ep", 0] },
+    { "from": 2, "to": 2, "label": ["sq", 1] },
+    { "from": 2, "to": 2, "label": ["q", 1] },
+    { "from": 2, "to": 2, "label": ["eq", 1] },
+
+    { "from": 3, "to": 3, "label": ["sp", 0] },
+    { "from": 3, "to": 3, "label": ["p", 0] },
+    { "from": 3, "to": 3, "label": ["ep", 0] },
+    { "from": 3, "to": 3, "label": ["sq", 1] },
+    { "from": 3, "to": 3, "label": ["q", 1] },
+    { "from": 3, "to": 3, "label": ["eq", 1] },
+
+    { "from": 4, "to": 4, "label": ["sp", 0] },
+    { "from": 4, "to": 4, "label": ["p", 0] },
+    { "from": 4, "to": 4, "label": ["ep", 0] },
+    { "from": 4, "to": 4, "label": ["sq", 1] },
+    { "from": 4, "to": 4, "label": ["q", 1] },
+    { "from": 4, "to": 4, "label": ["eq", 1] }
+  ]
+}
