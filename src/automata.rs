@@ -50,7 +50,11 @@ impl<'a> State<'a> {
         for transition in self.transitions.borrow().iter() {
             // Make a copy of action
             let mut remaining_action = Vec::with_capacity(action.len());
-            assert_eq!(remaining_action.len(), transition.action.len(), "Action length mismatch");
+            assert_eq!(
+                remaining_action.len(),
+                transition.action.len(),
+                "Action length mismatch"
+            );
             // Check if for element in transition.action, there is a corresponding element in action or transition.action is epsilon
             let mut is_valid = true;
             for i in 0..transition.action.len() {
