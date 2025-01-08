@@ -175,6 +175,14 @@ impl<T> ReadableView<T> {
     pub fn readable_slice(&self) -> Ref<'_, [T]> {
         Ref::map(self.data.borrow(), |vec| &vec[self.start..])
     }
+
+    pub fn len(&self) -> usize {
+        self.data.borrow().len() - self.start
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl<T> Clone for ReadableView<T> {
