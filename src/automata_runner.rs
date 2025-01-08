@@ -1,53 +1,128 @@
-use crate::automata::{Automata, State};
+use crate::automata::{Automata, State, Transition};
 use std::cell::{Ref, RefCell};
+use std::collections::hash_set::Iter;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-pub struct AutomataRunner<'a> {
-    pub current_configurations: HashSet<AutomataConfiguration<'a>>,
+trait AutomataRunner<'a, C: AutomataConfiguration<'a>> {
+    fn insert(&mut self, configuration: C);
+    fn len(&self) -> usize;
+    fn iter(&mut self) -> Iter<C>;
+    fn insert_from_initial_states(
+        &mut self,
+        automaton: &'a Automata<'a>,
+        input_sequence: Vec<ReadableView<String>>,
+    );
+
+    fn consume(&mut self) {
+        let mut current_size = 0;
+        while current_size != self.len() {
+            current_size = self.len();
+            let mut new_configurations = Vec::new();
+            for current_configuration in self.iter() {
+                new_configurations.append(&mut current_configuration.successors());
+            }
+            for c in new_configurations.drain(..) {
+                self.insert(c);
+            }
+        }
+    }
 }
 
-impl<'a> AutomataRunner<'a> {
+pub struct SimpleAutomataRunner<'a> {
+    pub current_configurations: HashSet<SimpleAutomataConfiguration<'a>>,
+}
+
+impl<'a> SimpleAutomataRunner<'a> {
     pub fn new(automaton: &'a Automata<'a>, input_sequence: Vec<ReadableView<String>>) -> Self {
         let mut current_configurations = HashSet::new();
         for initial_state in automaton.initial_states.iter() {
-            let config =
-                AutomataConfiguration::new(initial_state, input_sequence.clone());
+            let config = SimpleAutomataConfiguration::new(initial_state, input_sequence.clone());
             current_configurations.insert(config);
         }
         Self {
             current_configurations,
         }
     }
+}
 
-    pub fn insert(&mut self, automaton: &'a Automata<'a>, input_sequence: Vec<ReadableView<String>>) {
+impl<'a> AutomataRunner<'a, SimpleAutomataConfiguration<'a>> for SimpleAutomataRunner<'a> {
+    fn insert(&mut self, configuration: SimpleAutomataConfiguration<'a>) {
+        self.current_configurations.insert(configuration);
+    }
+
+    fn len(&self) -> usize {
+        self.current_configurations.len()
+    }
+
+    fn iter(&mut self) -> Iter<SimpleAutomataConfiguration<'a>> {
+        self.current_configurations.iter()
+    }
+
+    fn insert_from_initial_states(
+        &mut self,
+        automaton: &'a Automata<'a>,
+        input_sequence: Vec<ReadableView<String>>,
+    ) {
         for initial_state in automaton.initial_states.iter() {
-            let config =
-                AutomataConfiguration::new(initial_state, input_sequence.clone());
+            let config = SimpleAutomataConfiguration::new(initial_state, input_sequence.clone());
             self.current_configurations.insert(config);
         }
     }
+}
 
-    pub fn consume(&mut self) {
-        let mut current_size = 0;
-        while current_size != self.current_configurations.len() {
-            current_size = self.current_configurations.len();
-            let mut new_configurations = Vec::new();
-            for current_configuration in &self.current_configurations {
-                new_configurations.append(&mut current_configuration.successors());
+trait AutomataConfiguration<'a> {
+    fn dimensions(&self) -> usize;
+    fn transitions(&self) -> Ref<Vec<&Transition<'a>>>;
+    fn duplicate(&self, current_state: &'a State<'a>) -> Self;
+    fn input_head(&self, i: usize) -> Option<String>;
+    fn input_advance(&mut self, i: usize, count: usize);
+
+    /// Computes all possible successor configurations from the current one
+    /// by applying each outgoing transition of the current state.
+    ///
+    /// Returns a list of all valid successor configurations.
+    fn successors(&self) -> Vec<Self>
+    where
+        Self: Sized,
+    {
+        let mut successors = Vec::new();
+        for transition in self.transitions().iter() {
+            assert_eq!(
+                self.dimensions(),
+                transition.action.len(),
+                "Action length mismatch"
+            );
+            // Make the tentative successor
+            let mut successor = self.duplicate(transition.next_state);
+            // Check if the transition is available
+            let mut is_valid = true;
+            for i in 0..transition.action.len() {
+                let head = self.input_head(i);
+                if transition.action[i] != ""
+                    && (head.is_none() || transition.action[i] != head.unwrap())
+                {
+                    is_valid = false;
+                    break;
+                } else if transition.action[i] != "" {
+                    // Consume the input sequence
+                    successor.input_advance(i, 1);
+                }
             }
-            for c in new_configurations.drain(..) {
-                self.current_configurations.insert(c);
+
+            if is_valid {
+                successors.push(successor);
             }
         }
+        successors
     }
 }
 
 /// Represents the current configuration of an automaton
 #[derive(Hash, Eq, PartialEq, Debug)]
-pub struct AutomataConfiguration<'a> {
+pub struct SimpleAutomataConfiguration<'a> {
     /// The current state of the automaton.
     pub current_state: &'a State<'a>,
 
@@ -56,58 +131,50 @@ pub struct AutomataConfiguration<'a> {
     pub input_sequence: Vec<ReadableView<String>>,
 }
 
-impl<'a> AutomataConfiguration<'a> {
+impl<'a> SimpleAutomataConfiguration<'a> {
     /// Creates a new `AutomataConfiguration` from the automaton, current state,
     /// and a list of readable views of the input(s).
-    pub fn new(
-        current_state: &'a State<'a>,
-        input_sequence: Vec<ReadableView<String>>,
-    ) -> Self {
+    pub fn new(current_state: &'a State<'a>, input_sequence: Vec<ReadableView<String>>) -> Self {
         Self {
             current_state,
             input_sequence,
         }
     }
+}
 
-    /// Computes all possible successor configurations from the current one
-    /// by applying each outgoing transition of the current state.
-    ///
-    /// Returns a list of all valid successor configurations.
-    pub fn successors(&self) -> Vec<AutomataConfiguration<'a>> {
-        let mut successors = Vec::new();
-        for transition in self.current_state.transitions.borrow().iter() {
-            assert_eq!(
-                self.input_sequence.len(),
-                transition.action.len(),
-                "Action length mismatch"
-            );
-            // Make the tentative successor
-            let mut successor = AutomataConfiguration::new(
-                transition.next_state,
-                self.input_sequence.clone(),
-            );
-            // Check if the transition is available
-            let mut is_valid = true;
-            for i in 0..transition.action.len() {
-                let slice = successor.input_sequence[i].readable_slice();
-                if transition.action[i] != ""
-                    && (slice.len() == 0 || transition.action[i] != slice[0])
-                {
-                    is_valid = false;
-                    break;
-                } else if transition.action[i] != "" {
-                    drop(slice);
-                    // Consume the input sequence
-                    successor.input_sequence[i].advance_readable(1);
-                }
-            }
+impl<'a> AutomataConfiguration<'a> for SimpleAutomataConfiguration<'a> {
+    fn dimensions(&self) -> usize {
+        self.input_sequence.len()
+    }
 
-            if is_valid {
-                successor.current_state = transition.next_state;
-                successors.push(successor);
-            }
+    fn transitions(&self) -> Ref<Vec<&Transition<'a>>> {
+        self.current_state.transitions.borrow()
+    }
+
+    fn duplicate(&self, current_state: &'a State<'a>) -> Self {
+        Self {
+            current_state,
+            input_sequence: self.input_sequence.clone(),
         }
-        successors
+    }
+
+    fn input_head(&self, i: usize) -> Option<String> {
+        if i < self.input_sequence.len() {
+            let head = self.input_sequence[i].readable_slice();
+            if head.is_empty() {
+                None
+            } else {
+                Some(head[0].clone())
+            }
+        } else {
+            None
+        }
+    }
+
+    fn input_advance(&mut self, i: usize, count: usize) {
+        if i < self.input_sequence.len() {
+            self.input_sequence[i].advance_readable(count);
+        }
     }
 }
 
@@ -268,7 +335,7 @@ mod tests {
         sequences[0].append("c".to_string());
         sequences[1].append("d".to_string());
 
-        let config = AutomataConfiguration::new(
+        let config = SimpleAutomataConfiguration::new(
             &s1,
             sequences.iter().map(|s| s.readable_view()).collect(),
         );
@@ -329,7 +396,7 @@ mod tests {
         sequences[0].append("c".to_string());
         sequences[1].append("d".to_string());
 
-        let mut runner = AutomataRunner::new(
+        let mut runner = SimpleAutomataRunner::new(
             &automata,
             sequences.iter().map(|s| s.readable_view()).collect(),
         );
@@ -340,7 +407,7 @@ mod tests {
         assert_eq!(successors.len(), 6);
 
         // No transition
-        assert!(successors.contains(&AutomataConfiguration::new(
+        assert!(successors.contains(&SimpleAutomataConfiguration::new(
             s1,
             sequences.iter().map(|s| s.readable_view()).collect()
         )));
@@ -350,20 +417,20 @@ mod tests {
             let mut view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
             view[0].advance_readable(1);
-            assert!(successors.contains(&AutomataConfiguration::new(s1, view)));
+            assert!(successors.contains(&SimpleAutomataConfiguration::new(s1, view)));
         }
         {
             let mut view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
             view[1].advance_readable(1);
-            assert!(successors.contains(&AutomataConfiguration::new(s1, view)));
+            assert!(successors.contains(&SimpleAutomataConfiguration::new(s1, view)));
         }
         {
             let mut view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
             view[0].advance_readable(1);
             view[1].advance_readable(1);
-            assert!(successors.contains(&AutomataConfiguration::new(s1, view)));
+            assert!(successors.contains(&SimpleAutomataConfiguration::new(s1, view)));
         }
 
         // Directly moves to s2
@@ -372,7 +439,7 @@ mod tests {
                 sequences.iter().map(|s| s.readable_view()).collect();
             view[0].advance_readable(1);
             view[1].advance_readable(1);
-            assert!(successors.contains(&AutomataConfiguration::new(s2, view)));
+            assert!(successors.contains(&SimpleAutomataConfiguration::new(s2, view)));
         }
 
         // Moves to s3 after consuming the first elements with the self loops
@@ -381,7 +448,7 @@ mod tests {
                 sequences.iter().map(|s| s.readable_view()).collect();
             view[0].advance_readable(2);
             view[1].advance_readable(2);
-            assert!(successors.contains(&AutomataConfiguration::new(s3, view)));
+            assert!(successors.contains(&SimpleAutomataConfiguration::new(s3, view)));
         }
     }
 }
