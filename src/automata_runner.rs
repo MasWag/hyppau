@@ -22,6 +22,14 @@ impl<'a> AutomataRunner<'a> {
         }
     }
 
+    pub fn insert(&mut self, automaton: &'a Automata<'a>, input_sequence: Vec<ReadableView<String>>) {
+        for initial_state in automaton.initial_states.iter() {
+            let config =
+                AutomataConfiguration::new(automaton, initial_state, input_sequence.clone());
+            self.current_configurations.insert(config);
+        }
+    }
+
     pub fn consume(&mut self) {
         let mut current_size = 0;
         while current_size != self.current_configurations.len() {
