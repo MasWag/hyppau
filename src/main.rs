@@ -1,4 +1,5 @@
 mod automata;
+mod automata_runner;
 mod multi_stream_reader;
 mod result_notifier;
 mod shared_buffer;

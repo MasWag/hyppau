@@ -1,4 +1,6 @@
 use std::cell::RefCell;
+use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
 use typed_arena::Arena;
 
 /// Represents a transition between states in an automaton.
@@ -12,10 +14,16 @@ pub struct Transition<'a> {
     pub next_state: &'a State<'a>,
 }
 
+impl<'a> Hash for Transition<'a> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.action.hash(state);
+        self.next_state.hash(state);
+    }
+}
+
 /// Represents a state in an automaton.
 ///
 /// A state can have multiple transitions and may be marked as a final state.
-#[derive(Debug, PartialEq)]
 pub struct State<'a> {
     /// The transitions originating from this state.
     pub transitions: RefCell<Vec<&'a Transition<'a>>>,
@@ -23,16 +31,30 @@ pub struct State<'a> {
     pub is_final: bool,
 }
 
-/// Represents a finite automaton.
-///
-/// An automaton consists of a set of states, transitions, and initial states.
-pub struct Automata<'a> {
-    /// The arena for allocating states.
-    pub states: &'a Arena<State<'a>>,
-    /// The arena for allocating transitions.
-    pub transitions: &'a Arena<Transition<'a>>,
-    /// The initial states of the automaton.
-    pub initial_states: Vec<&'a State<'a>>,
+impl<'a> PartialEq for State<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        // We utilize the comparison based on the memory address of the state
+        self as *const _ == other as *const _
+    }
+}
+
+impl<'a> Eq for State<'a> {}
+
+impl<'a> Debug for State<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "State({:?}, is_final: {})",
+            self as *const _, self.is_final
+        )
+    }
+}
+
+impl<'a> Hash for State<'a> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Implement a simple hash function for the State
+        state.write_usize(self as *const _ as usize);
+    }
 }
 
 impl<'a> State<'a> {
@@ -45,7 +67,7 @@ impl<'a> State<'a> {
     /// # Returns
     ///
     /// A vector of pairs, where each pair consists of the target state and the remaining actions.
-    pub fn consume(&self, action: &[String]) -> Vec<(&State<'a>, Vec<String>)> {
+    pub fn consume(&self, action: Vec<String>) -> Vec<(&State<'a>, Vec<String>)> {
         let mut successors = Vec::new();
         for transition in self.transitions.borrow().iter() {
             // Make a copy of action
@@ -71,6 +93,18 @@ impl<'a> State<'a> {
         }
         successors
     }
+}
+
+/// Represents a finite automaton.
+///
+/// An automaton consists of a set of states, transitions, and initial states.
+pub struct Automata<'a> {
+    /// The arena for allocating states.
+    pub states: &'a Arena<State<'a>>,
+    /// The arena for allocating transitions.
+    pub transitions: &'a Arena<Transition<'a>>,
+    /// The initial states of the automaton.
+    pub initial_states: Vec<&'a State<'a>>,
 }
 
 impl<'a> Automata<'a> {
@@ -136,6 +170,22 @@ impl<'a> Automata<'a> {
         });
         from.transitions.borrow_mut().push(transition);
         transition
+    }
+}
+
+impl<'a> PartialEq for Automata<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        // We utilize the comparison based on the memory address of the Automata
+        self as *const _ == other as *const _
+    }
+}
+
+impl<'a> Eq for Automata<'a> {}
+
+impl<'a> Hash for Automata<'a> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Implement a simple hash function for the Automata
+        self.initial_states.hash(state);
     }
 }
 

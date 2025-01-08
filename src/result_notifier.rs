@@ -17,7 +17,7 @@ impl ResultNotifier for StdoutResultNotifier {
         for i in (0..result.len()).step_by(2) {
             print!("({}, {})", result[i], result[i + 1]);
             if i + 2 < result.len() {
-                println!(", ");
+                print!(", ");
             } else {
                 println!();
             }
