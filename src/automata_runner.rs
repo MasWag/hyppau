@@ -14,7 +14,7 @@ impl<'a> AutomataRunner<'a> {
         let mut current_configurations = HashSet::new();
         for initial_state in automaton.initial_states.iter() {
             let config =
-                AutomataConfiguration::new(automaton, initial_state, input_sequence.clone());
+                AutomataConfiguration::new(initial_state, input_sequence.clone());
             current_configurations.insert(config);
         }
         Self {
@@ -25,7 +25,7 @@ impl<'a> AutomataRunner<'a> {
     pub fn insert(&mut self, automaton: &'a Automata<'a>, input_sequence: Vec<ReadableView<String>>) {
         for initial_state in automaton.initial_states.iter() {
             let config =
-                AutomataConfiguration::new(automaton, initial_state, input_sequence.clone());
+                AutomataConfiguration::new(initial_state, input_sequence.clone());
             self.current_configurations.insert(config);
         }
     }
@@ -48,9 +48,6 @@ impl<'a> AutomataRunner<'a> {
 /// Represents the current configuration of an automaton
 #[derive(Hash, Eq, PartialEq, Debug)]
 pub struct AutomataConfiguration<'a> {
-    /// A reference to the associated Automata.
-    pub automaton: &'a Automata<'a>,
-
     /// The current state of the automaton.
     pub current_state: &'a State<'a>,
 
@@ -63,12 +60,10 @@ impl<'a> AutomataConfiguration<'a> {
     /// Creates a new `AutomataConfiguration` from the automaton, current state,
     /// and a list of readable views of the input(s).
     pub fn new(
-        automaton: &'a Automata<'a>,
         current_state: &'a State<'a>,
         input_sequence: Vec<ReadableView<String>>,
     ) -> Self {
         Self {
-            automaton,
             current_state,
             input_sequence,
         }
@@ -88,7 +83,6 @@ impl<'a> AutomataConfiguration<'a> {
             );
             // Make the tentative successor
             let mut successor = AutomataConfiguration::new(
-                self.automaton,
                 transition.next_state,
                 self.input_sequence.clone(),
             );
@@ -275,7 +269,6 @@ mod tests {
         sequences[1].append("d".to_string());
 
         let config = AutomataConfiguration::new(
-            &automata,
             &s1,
             sequences.iter().map(|s| s.readable_view()).collect(),
         );
@@ -348,7 +341,6 @@ mod tests {
 
         // No transition
         assert!(successors.contains(&AutomataConfiguration::new(
-            &automata,
             s1,
             sequences.iter().map(|s| s.readable_view()).collect()
         )));
@@ -358,20 +350,20 @@ mod tests {
             let mut view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
             view[0].advance_readable(1);
-            assert!(successors.contains(&AutomataConfiguration::new(&automata, s1, view)));
+            assert!(successors.contains(&AutomataConfiguration::new(s1, view)));
         }
         {
             let mut view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
             view[1].advance_readable(1);
-            assert!(successors.contains(&AutomataConfiguration::new(&automata, s1, view)));
+            assert!(successors.contains(&AutomataConfiguration::new(s1, view)));
         }
         {
             let mut view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
             view[0].advance_readable(1);
             view[1].advance_readable(1);
-            assert!(successors.contains(&AutomataConfiguration::new(&automata, s1, view)));
+            assert!(successors.contains(&AutomataConfiguration::new(s1, view)));
         }
 
         // Directly moves to s2
@@ -380,7 +372,7 @@ mod tests {
                 sequences.iter().map(|s| s.readable_view()).collect();
             view[0].advance_readable(1);
             view[1].advance_readable(1);
-            assert!(successors.contains(&AutomataConfiguration::new(&automata, s2, view)));
+            assert!(successors.contains(&AutomataConfiguration::new(s2, view)));
         }
 
         // Moves to s3 after consuming the first elements with the self loops
@@ -389,7 +381,7 @@ mod tests {
                 sequences.iter().map(|s| s.readable_view()).collect();
             view[0].advance_readable(2);
             view[1].advance_readable(2);
-            assert!(successors.contains(&AutomataConfiguration::new(&automata, s3, view)));
+            assert!(successors.contains(&AutomataConfiguration::new(s3, view)));
         }
     }
 }
