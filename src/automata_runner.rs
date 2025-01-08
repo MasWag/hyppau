@@ -6,24 +6,58 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
+/// A trait defining the behavior of an automata runner, which tracks and expands
+/// sets of configurations over time.
+///
+/// This trait is generic over:
+/// - `'a`: the lifetime of the automaton and its states/transitions.
+/// - `C`: the type of `AutomataConfiguration` that represents a single state of
+///   the automaton and the positions in the input(s).
 trait AutomataRunner<'a, C: AutomataConfiguration<'a>> {
+    /// Inserts a single new configuration into the runner's internal set.
+    ///
+    /// # Arguments
+    ///
+    /// * `configuration` - The new configuration to add.
     fn insert(&mut self, configuration: C);
+
+    /// Returns the current number of unique configurations tracked by the runner.
     fn len(&self) -> usize;
+
+    /// Returns an iterator over the current configurations.
+    ///
+    /// Note: This returns a concrete `Iter<C>` in the trait. If you need more
+    /// flexibility in the future (like returning different iterator types), you
+    /// could return `Box<dyn Iterator<Item = &C> + '_>` instead.
     fn iter(&mut self) -> Iter<C>;
+
+    /// Given an automaton and an initial input sequence, inserts configurations
+    /// corresponding to each initial state of the automaton.
+    ///
+    /// # Arguments
+    ///
+    /// * `automaton` - A reference to the automaton.
+    /// * `input_sequence` - A vector of `ReadableView<String>` representing the
+    ///   inputs to the automaton.
     fn insert_from_initial_states(
         &mut self,
         automaton: &'a Automata<'a>,
         input_sequence: Vec<ReadableView<String>>,
     );
 
+    /// Consumes the input sequence and move to the successors.
     fn consume(&mut self) {
         let mut current_size = 0;
         while current_size != self.len() {
             current_size = self.len();
             let mut new_configurations = Vec::new();
+
+            // Collect successors from every configuration we currently have.
             for current_configuration in self.iter() {
                 new_configurations.append(&mut current_configuration.successors());
             }
+
+            // Insert all newly discovered configurations back into our set.
             for c in new_configurations.drain(..) {
                 self.insert(c);
             }
@@ -31,11 +65,33 @@ trait AutomataRunner<'a, C: AutomataConfiguration<'a>> {
     }
 }
 
+/// A simple implementation of an `AutomataRunner` that stores its configurations
+/// in a `HashSet`.
+///
+/// # Type Parameters
+/// * `'a` - The lifetime of the associated `Automata`, `State`, and `Transition`.
+///
+/// This runner supports inserting configurations, iterating over them, and
+/// performing saturation expansions with `consume`.
 pub struct SimpleAutomataRunner<'a> {
+    /// The current set of configurations of type `SimpleAutomataConfiguration`.
+    /// Each configuration is unique in the set (thanks to `Hash`/`Eq`).
     pub current_configurations: HashSet<SimpleAutomataConfiguration<'a>>,
 }
 
 impl<'a> SimpleAutomataRunner<'a> {
+    /// Constructs a new `SimpleAutomataRunner` by inserting configurations for
+    /// each initial state of the given `automaton`.
+    ///
+    /// # Arguments
+    ///
+    /// * `automaton` - The automaton containing states and transitions.
+    /// * `input_sequence` - A vector of input views to be associated with each
+    ///   newly created configuration.
+    ///
+    /// # Returns
+    ///
+    /// A new `SimpleAutomataRunner` with initial configurations set up.
     pub fn new(automaton: &'a Automata<'a>, input_sequence: Vec<ReadableView<String>>) -> Self {
         let mut current_configurations = HashSet::new();
         for initial_state in automaton.initial_states.iter() {
@@ -49,18 +105,24 @@ impl<'a> SimpleAutomataRunner<'a> {
 }
 
 impl<'a> AutomataRunner<'a, SimpleAutomataConfiguration<'a>> for SimpleAutomataRunner<'a> {
+    /// Inserts a new configuration into the `HashSet`. Duplicate configurations
+    /// (i.e., those that are `Eq`) will be automatically skipped.
     fn insert(&mut self, configuration: SimpleAutomataConfiguration<'a>) {
         self.current_configurations.insert(configuration);
     }
 
+    /// Returns the number of unique configurations in the `HashSet`.
     fn len(&self) -> usize {
         self.current_configurations.len()
     }
 
+    /// Returns an iterator over the current configurations in the `HashSet`.
     fn iter(&mut self) -> Iter<SimpleAutomataConfiguration<'a>> {
         self.current_configurations.iter()
     }
 
+    /// Inserts new configurations for each initial state of the given automaton,
+    /// using the provided `input_sequence`.
     fn insert_from_initial_states(
         &mut self,
         automaton: &'a Automata<'a>,
@@ -73,17 +135,51 @@ impl<'a> AutomataRunner<'a, SimpleAutomataConfiguration<'a>> for SimpleAutomataR
     }
 }
 
+/// A trait defining what it means to be a single "configuration" of an automaton.
+/// This encapsulates:
+/// - The current automaton state,
+/// - The input slices/views (one per dimension if multi-dimensional).
+///
+/// # Lifetime Parameters
+/// * `'a`: lifetime that ties this configuration to the automaton’s states and transitions.
 trait AutomataConfiguration<'a> {
+    /// Returns the number of tracks in the automaton.
     fn dimensions(&self) -> usize;
+
+    /// Returns a shared reference to the list of outgoing transitions from
+    /// the current state.
     fn transitions(&self) -> Ref<Vec<&Transition<'a>>>;
+
+    /// Creates a new configuration that is identical to `self` except its
+    /// current state is replaced with `current_state`. Typically used before
+    /// checking or applying transitions.
     fn duplicate(&self, current_state: &'a State<'a>) -> Self;
+
+    /// Returns the current "head" element of the `i`-th input sequence, if it exists.
+    /// If the sequence is empty at that index, returns `None`.
+    ///
+    /// # Arguments
+    ///
+    /// * `i` - The index of the input sequence to examine.
     fn input_head(&self, i: usize) -> Option<String>;
+
+    /// Advances the `i`-th input sequence by `count` elements. If the sequence
+    /// is shorter than `count`, is clamps the new start index to the sequence length.
+    ///
+    /// # Arguments
+    ///
+    /// * `i` - The index of the input sequence to advance.
+    /// * `count` - How many elements to consume.
     fn input_advance(&mut self, i: usize, count: usize);
 
     /// Computes all possible successor configurations from the current one
     /// by applying each outgoing transition of the current state.
     ///
-    /// Returns a list of all valid successor configurations.
+    /// Returns a list of all valid successor configurations. A successor is
+    /// considered valid if for every dimension of the transition’s action:
+    /// - If the transition’s action is non-empty, it must match the head of
+    ///   the corresponding input sequence,
+    /// - Then that matching symbol is consumed (the input is advanced).
     fn successors(&self) -> Vec<Self>
     where
         Self: Sized,
@@ -104,10 +200,12 @@ trait AutomataConfiguration<'a> {
                 if transition.action[i] != ""
                     && (head.is_none() || transition.action[i] != head.unwrap())
                 {
+                    // If the action says "consume symbol X" but the head is absent
+                    // or different, this transition is invalid.
                     is_valid = false;
                     break;
                 } else if transition.action[i] != "" {
-                    // Consume the input sequence
+                    // Consume the input sequence.
                     successor.input_advance(i, 1);
                 }
             }
@@ -120,7 +218,10 @@ trait AutomataConfiguration<'a> {
     }
 }
 
-/// Represents the current configuration of an automaton
+/// Represents the current configuration of an automaton, including:
+/// - The current state of the automaton,
+/// - A vector of input sequences (as `ReadableView<String>`), indicating how
+///   far each dimension of input has been read.
 #[derive(Hash, Eq, PartialEq, Debug)]
 pub struct SimpleAutomataConfiguration<'a> {
     /// The current state of the automaton.
@@ -128,12 +229,19 @@ pub struct SimpleAutomataConfiguration<'a> {
 
     /// A vector of readable views over the input(s) that the automaton consumes.
     /// Each `ReadableView<String>` tracks how far the automaton has read.
+    /// For example, if this vector has length 2, we are dealing with a 2D input.
     pub input_sequence: Vec<ReadableView<String>>,
 }
 
 impl<'a> SimpleAutomataConfiguration<'a> {
-    /// Creates a new `AutomataConfiguration` from the automaton, current state,
-    /// and a list of readable views of the input(s).
+    /// Creates a new `SimpleAutomataConfiguration` from the given state and
+    /// list of `ReadableView`s for each input dimension.
+    ///
+    /// # Arguments
+    ///
+    /// * `current_state` - The automaton state this configuration points to.
+    /// * `input_sequence` - A vector of `ReadableView<String>` representing
+    ///   the input stream for the automaton.
     pub fn new(current_state: &'a State<'a>, input_sequence: Vec<ReadableView<String>>) -> Self {
         Self {
             current_state,
@@ -179,13 +287,22 @@ impl<'a> AutomataConfiguration<'a> for SimpleAutomataConfiguration<'a> {
 }
 
 /// An append-only sequence container that allows multiple readers to view
-/// appended elements without mutating them.
+/// appended elements without mutating them. Once appended, elements remain at
+/// their positions, so existing `ReadableView`s stay valid.
+///
+/// # Type Parameters
+/// * `T` - The type of elements stored in the sequence.
 pub struct AppendOnlySequence<T> {
+    /// Internal shared storage of all elements in the sequence.
     data: Rc<RefCell<Vec<T>>>,
 }
 
 impl<T> AppendOnlySequence<T> {
     /// Creates a new, empty `AppendOnlySequence`.
+    ///
+    /// # Returns
+    ///
+    /// An empty sequence capable of storing `T`.
     pub fn new() -> Self {
         Self {
             data: Rc::new(RefCell::new(Vec::new())),
@@ -193,39 +310,66 @@ impl<T> AppendOnlySequence<T> {
     }
 
     /// Appends a value to the end of the sequence. Existing readers keep
-    /// their views
+    /// their same start index but the underlying slice grows.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The value to add at the end of this sequence.
     pub fn append(&mut self, value: T) {
         self.data.borrow_mut().push(value);
     }
 
-    /// Clears all elements in the sequence.
+    /// Clears all elements in the sequence, removing them permanently.
+    /// Any existing `ReadableView`s will now see an empty slice.
     pub fn clear(&mut self) {
         self.data.borrow_mut().clear();
     }
 
     /// Creates a readable view starting from the beginning of the sequence.
+    ///
+    /// # Returns
+    ///
+    /// A `ReadableView` that starts at index `0` and can be advanced but not
+    /// rewound.
     pub fn readable_view(&self) -> ReadableView<T> {
         ReadableView::new(Rc::clone(&self.data))
     }
 }
 
-/// A "read-only" view into part of an `AppendOnlySequence`.
+/// A "read-only" view into part of an `AppendOnlySequence`. It keeps track of
+/// where in the sequence it is currently "reading" (via `start`).
+///
+/// # Type Parameters
+/// * `T` - The type of the elements in the underlying sequence.
 #[derive(Debug)]
 pub struct ReadableView<T> {
-    /// Shared ownership of the sequence
+    /// Shared ownership of the sequence data.
     data: Rc<RefCell<Vec<T>>>,
-    /// Start index of the readable range
+    /// The current starting index for reading.
     start: usize,
 }
 
 impl<T> ReadableView<T> {
     /// Creates a new `ReadableView` starting at index `0`.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - A reference-counted pointer to the shared vector of `T`.
+    ///
+    /// # Returns
+    ///
+    /// A readable view that will initially see the entire sequence.
     pub fn new(data: Rc<RefCell<Vec<T>>>) -> Self {
         Self { data, start: 0 }
     }
 
     /// Advances the readable view forward by `count` positions. If `count`
-    /// would go beyond the end of the data, it clamps to the end.
+    /// would go beyond the end of the data, it clamps to the end of the
+    /// sequence.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - The number of elements to consume from the front of this view.
     pub fn advance_readable(&mut self, count: usize) {
         let len = self.data.borrow().len();
         self.start = usize::min(self.start + count, len);
@@ -233,20 +377,29 @@ impl<T> ReadableView<T> {
 
     /// Returns a borrow of the underlying slice that starts at the current
     /// `start` index and goes to the end of the data.
+    ///
+    /// # Returns
+    ///
+    /// An immutable slice of type `[T]`.
     pub fn readable_slice(&self) -> Ref<'_, [T]> {
         Ref::map(self.data.borrow(), |vec| &vec[self.start..])
     }
 
+    /// Returns the current length of the readable slice, i.e., how many items
+    /// remain from `start` to the end.
     pub fn len(&self) -> usize {
         self.data.borrow().len() - self.start
     }
 
+    /// Returns `true` if there are no more items left to read.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 }
 
 impl<T> Clone for ReadableView<T> {
+    /// Cloning a `ReadableView` shares the same underlying data and the same
+    /// `start` index. Both views will move independently if advanced later.
     fn clone(&self) -> Self {
         ReadableView {
             data: Rc::clone(&self.data),
@@ -256,16 +409,21 @@ impl<T> Clone for ReadableView<T> {
 }
 
 impl<T: Hash> Hash for ReadableView<T> {
+    /// We hash by pointer address of `data` and the `start` index. This means
+    /// two `ReadableView`s of the same slice (by pointer) and same start
+    /// index will have the same hash, but distinct sequence objects or indices
+    /// will differ.
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // Implement a simple hash function for the Automata
         self.data.as_ptr().hash(state);
         self.start.hash(state);
     }
 }
 
 impl<T: Eq> PartialEq for ReadableView<T> {
+    /// Two `ReadableView`s are considered equal if they point to the same
+    /// underlying sequence (same `Rc`) and have the same `start` index.
+    /// They do not compare the actual *contents* in the sequence.
     fn eq(&self, other: &Self) -> bool {
-        // We utilize the comparison based on the memory address of the state
         self.data.as_ptr() as *const _ == other.data.as_ptr() as *const _
             && self.start == other.start
     }
