@@ -3,7 +3,7 @@ use std::io::{self, BufRead};
 use std::sync::{Arc, Mutex};
 
 /// A dynamic buffer that supports concurrent reads and writes.
-/// 
+///
 /// This structure is designed for real-time data streams where multiple producers
 /// and consumers can interact with the buffer safely.
 pub struct SharedBuffer {
