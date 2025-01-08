@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Update dependencies in the Cargo.toml and Cargo.lock files
+  - package-ecosystem: "cargo"
+    directory: "/" # Location of Cargo.toml
+    schedule:
+      interval: "daily" # Frequency of updates (daily, weekly, monthly)
+
+  # Update GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/" # Location of workflow files
+    schedule:
+      interval: "daily" # Frequency of updates
