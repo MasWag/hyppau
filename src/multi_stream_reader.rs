@@ -1,4 +1,5 @@
-use std::collections::{HashMap, VecDeque};
+use crate::shared_buffer::SharedBuffer;
+use std::collections::HashMap;
 use std::io::{self, BufRead};
 use std::sync::{Arc, Mutex};
 
@@ -11,84 +12,6 @@ pub trait StreamSource: BufRead + Send {
 impl<T: BufRead + Send + 'static> StreamSource for T {
     fn as_any(&self) -> &dyn std::any::Any {
         self
-    }
-}
-
-/// A dynamic buffer source that can be updated and read in real-time.
-pub struct SharedBuffer {
-    buffer: Arc<Mutex<VecDeque<String>>>,
-    internal_buf: Vec<u8>, // Persistent internal buffer for `fill_buf`
-}
-
-/// A source of dynamic buffer to feed the value from outside
-pub struct SharedBufferSource {
-    buffer: Arc<Mutex<VecDeque<String>>>,
-}
-
-impl SharedBufferSource {
-    pub fn new(buffer: Arc<Mutex<VecDeque<String>>>) -> Self {
-        Self { buffer }
-    }
-
-    pub fn push(&self, line: &str) {
-        let mut buffer = self.buffer.lock().unwrap();
-        buffer.push_back(line.to_string());
-    }
-}
-
-impl SharedBuffer {
-    /// Creates a new dynamic buffer.
-    pub fn new() -> Self {
-        Self {
-            buffer: Arc::new(Mutex::new(VecDeque::new())),
-            internal_buf: Vec::new(),
-        }
-    }
-
-    /// Pushes a new line into the buffer.
-    pub fn push(&self, line: &str) {
-        let mut buffer = self.buffer.lock().unwrap();
-        buffer.push_back(line.to_string());
-    }
-
-    pub fn make_source(&self) -> SharedBufferSource {
-        SharedBufferSource::new(self.buffer.clone())
-    }
-}
-
-impl std::io::Read for SharedBuffer {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut buffer = self.buffer.lock().unwrap();
-
-        if let Some(line) = buffer.pop_front() {
-            let bytes = line.as_bytes();
-            let len = bytes.len().min(buf.len());
-            buf[..len].copy_from_slice(&bytes[..len]);
-            Ok(len)
-        } else {
-            Ok(0) // No more data to read
-        }
-    }
-}
-
-impl BufRead for SharedBuffer {
-    fn fill_buf(&mut self) -> io::Result<&[u8]> {
-        if self.internal_buf.is_empty() {
-            if let Some(line) = self.buffer.lock().unwrap().pop_front() {
-                self.internal_buf.extend_from_slice(line.as_bytes());
-                // We need to add line feed to the internal buffer
-                self.internal_buf.push(b'\n');
-            }
-        }
-        Ok(&self.internal_buf)
-    }
-
-    fn consume(&mut self, amt: usize) {
-        if amt > self.internal_buf.len() {
-            panic!("Cannot consume more than available");
-        } else {
-            self.internal_buf.drain(..amt);
-        }
     }
 }
 
