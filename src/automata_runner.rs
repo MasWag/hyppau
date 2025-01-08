@@ -1,6 +1,7 @@
 use crate::automata::{Automata, State};
 use std::cell::{Ref, RefCell};
 use std::collections::HashSet;
+use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
@@ -24,14 +25,12 @@ impl<'a> AutomataRunner<'a> {
     pub fn consume(&mut self) {
         let mut current_size = 0;
         while current_size != self.current_configurations.len() {
-            println!("current_size: {}", current_size);
             current_size = self.current_configurations.len();
             let mut new_configurations = Vec::new();
             for current_configuration in &self.current_configurations {
                 new_configurations.append(&mut current_configuration.successors());
             }
             for c in new_configurations.drain(..) {
-                // Fixme: Something is wrong here and it seems duplicated elements are in the HashSet
                 self.current_configurations.insert(c);
             }
         }
@@ -39,7 +38,7 @@ impl<'a> AutomataRunner<'a> {
 }
 
 /// Represents the current configuration of an automaton
-#[derive(Hash, Eq, PartialEq)]
+#[derive(Hash, Eq, PartialEq, Debug)]
 pub struct AutomataConfiguration<'a> {
     /// A reference to the associated Automata.
     pub automaton: &'a Automata<'a>,
@@ -142,6 +141,7 @@ impl<T> AppendOnlySequence<T> {
 }
 
 /// A "read-only" view into part of an `AppendOnlySequence`.
+#[derive(Debug)]
 pub struct ReadableView<T> {
     /// Shared ownership of the sequence
     data: Rc<RefCell<Vec<T>>>,
@@ -181,7 +181,7 @@ impl<T> Clone for ReadableView<T> {
 impl<T: Hash> Hash for ReadableView<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Implement a simple hash function for the Automata
-        self.data.borrow().hash(state);
+        self.data.as_ptr().hash(state);
         self.start.hash(state);
     }
 }
@@ -189,7 +189,8 @@ impl<T: Hash> Hash for ReadableView<T> {
 impl<T: Eq> PartialEq for ReadableView<T> {
     fn eq(&self, other: &Self) -> bool {
         // We utilize the comparison based on the memory address of the state
-        self as *const _ == other as *const _ && self.start == other.start
+        self.data.as_ptr() as *const _ == other.data.as_ptr() as *const _
+            && self.start == other.start
     }
 }
 
@@ -319,40 +320,60 @@ mod tests {
         sequences[0].append("c".to_string());
         sequences[1].append("d".to_string());
 
-        let mut runner = AutomataRunner::new(&automata, sequences.iter().map(|s| s.readable_view()).collect());
-        // runner.consume();
+        let mut runner = AutomataRunner::new(
+            &automata,
+            sequences.iter().map(|s| s.readable_view()).collect(),
+        );
+        runner.consume();
 
         let successors = runner.current_configurations;
 
-        assert_eq!(successors.len(), 4);
+        assert_eq!(successors.len(), 6);
 
-        // assert_eq!(successors[0].current_state, s2);
-        // assert_eq!(successors[1].current_state, s1);
-        // assert_eq!(successors[2].current_state, s1);
-        // assert_eq!(successors[3].current_state, s1);
+        // No transition
+        assert!(successors.contains(&AutomataConfiguration::new(
+            &automata,
+            s1,
+            sequences.iter().map(|s| s.readable_view()).collect()
+        )));
 
-        // assert_eq!(*successors[0].input_sequence[0].readable_slice(), ["c"]);
-        // assert_eq!(*successors[0].input_sequence[1].readable_slice(), ["d"]);
+        // Self loops
+        {
+            let mut view: Vec<ReadableView<String>> =
+                sequences.iter().map(|s| s.readable_view()).collect();
+            view[0].advance_readable(1);
+            assert!(successors.contains(&AutomataConfiguration::new(&automata, s1, view)));
+        }
+        {
+            let mut view: Vec<ReadableView<String>> =
+                sequences.iter().map(|s| s.readable_view()).collect();
+            view[1].advance_readable(1);
+            assert!(successors.contains(&AutomataConfiguration::new(&automata, s1, view)));
+        }
+        {
+            let mut view: Vec<ReadableView<String>> =
+                sequences.iter().map(|s| s.readable_view()).collect();
+            view[0].advance_readable(1);
+            view[1].advance_readable(1);
+            assert!(successors.contains(&AutomataConfiguration::new(&automata, s1, view)));
+        }
 
-        // assert_eq!(*successors[1].input_sequence[0].readable_slice(), ["c"]);
-        // assert_eq!(
-        //     *successors[1].input_sequence[1].readable_slice(),
-        //     ["b", "d"]
-        // );
+        // Directly moves to s2
+        {
+            let mut view: Vec<ReadableView<String>> =
+                sequences.iter().map(|s| s.readable_view()).collect();
+            view[0].advance_readable(1);
+            view[1].advance_readable(1);
+            assert!(successors.contains(&AutomataConfiguration::new(&automata, s2, view)));
+        }
 
-        // assert_eq!(
-        //     *successors[2].input_sequence[0].readable_slice(),
-        //     ["a", "c"]
-        // );
-        // assert_eq!(*successors[2].input_sequence[1].readable_slice(), ["d"]);
-
-        // assert_eq!(
-        //     *successors[3].input_sequence[0].readable_slice(),
-        //     ["a", "c"]
-        // );
-        // assert_eq!(
-        //     *successors[3].input_sequence[1].readable_slice(),
-        //     ["b", "d"]
-        // );
+        // Moves to s3 after consuming the first elements with the self loops
+        {
+            let mut view: Vec<ReadableView<String>> =
+                sequences.iter().map(|s| s.readable_view()).collect();
+            view[0].advance_readable(2);
+            view[1].advance_readable(2);
+            assert!(successors.contains(&AutomataConfiguration::new(&automata, s3, view)));
+        }
     }
 }

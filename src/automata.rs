@@ -189,6 +189,12 @@ impl<'a> Hash for Automata<'a> {
     }
 }
 
+impl<'a> Debug for Automata<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Automata({:?})", self as *const _)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*; // Import everything from the parent module
