@@ -13,7 +13,7 @@ use std::rc::Rc;
 /// - `'a`: the lifetime of the automaton and its states/transitions.
 /// - `C`: the type of `AutomataConfiguration` that represents a single state of
 ///   the automaton and the positions in the input(s).
-trait AutomataRunner<'a, C: AutomataConfiguration<'a>> {
+pub trait AutomataRunner<'a, C: AutomataConfiguration<'a>> {
     /// Inserts a single new configuration into the runner's internal set.
     ///
     /// # Arguments
@@ -142,7 +142,7 @@ impl<'a> AutomataRunner<'a, SimpleAutomataConfiguration<'a>> for SimpleAutomataR
 ///
 /// # Lifetime Parameters
 /// * `'a`: lifetime that ties this configuration to the automaton’s states and transitions.
-trait AutomataConfiguration<'a> {
+pub trait AutomataConfiguration<'a> {
     /// Returns the number of tracks in the automaton.
     fn dimensions(&self) -> usize;
 
@@ -346,7 +346,7 @@ pub struct ReadableView<T> {
     /// Shared ownership of the sequence data.
     data: Rc<RefCell<Vec<T>>>,
     /// The current starting index for reading.
-    start: usize,
+    pub start: usize,
 }
 
 impl<T> ReadableView<T> {
