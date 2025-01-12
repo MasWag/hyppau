@@ -17,7 +17,7 @@ impl<T: BufRead + Send + 'static> StreamSource for T {
 
 /// A multi-stream reader supporting generic stream sources.
 pub struct MultiStreamReader {
-    readers: Vec<Arc<Mutex<Box<dyn StreamSource>>>>,
+    pub readers: Vec<Arc<Mutex<Box<dyn StreamSource>>>>,
     positions: Mutex<HashMap<usize, usize>>, // Keeps track of the read positions
 }
 
@@ -201,7 +201,7 @@ mod tests {
         let buffer_source1 = buffer1.make_source();
         let buffer_source2 = buffer2.make_source();
 
-        let sources: Vec<Box<dyn StreamSource>> = vec![Box::new(buffer1), Box::new(buffer2)];
+        let sources: Vec<Box<dyn StreamSource>> = vec![Box::new(buffer1.clone()), Box::new(buffer2.clone())];
         let multi_reader = MultiStreamReader::new(sources);
 
         assert!(multi_reader.is_available(0).is_ok_and(|x| x));
