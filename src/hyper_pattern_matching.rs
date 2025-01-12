@@ -1,13 +1,17 @@
 use crate::automata::{Automata, State, Transition};
+use crate::automata_runner::AppendOnlySequence;
 use crate::automata_runner::{AutomataConfiguration, AutomataRunner, ReadableView};
+use crate::result_notifier::ResultNotifier;
 use std::cell::Ref;
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
 
 // Trait of pattern matching algorithms
-trait HyperPatternMatching {
+pub trait HyperPatternMatching {
     // Feed a string-valued action to the given track
-    fn feed(&mut self, action: &str, track: u32);
+    fn feed(&mut self, action: &String, track: usize);
+
+    fn dimensions(&self) -> usize;
 }
 
 pub struct PatternMatchingAutomataRunner<'a> {
@@ -156,6 +160,98 @@ impl<'a> AutomataConfiguration<'a> for PatternMatchingAutomataConfiguration<'a> 
         if i < self.input_sequence.len() {
             self.input_sequence[i].advance_readable(count);
         }
+    }
+}
+
+pub struct NaiveHyperPatternMatching<'a, Notifier: ResultNotifier> {
+    automata_runner: PatternMatchingAutomataRunner<'a>,
+    notifier: Notifier,
+    sequences: Vec<AppendOnlySequence<String>>,
+    read_size: Vec<usize>,
+}
+
+impl<'a, Notifier: ResultNotifier> NaiveHyperPatternMatching<'a, Notifier> {
+    pub fn new(
+        automaton: &'a Automata<'a>,
+        notifier: Notifier,
+        sequences: Vec<AppendOnlySequence<String>>,
+    ) -> Self {
+        let automata_runner = PatternMatchingAutomataRunner::new(automaton);
+        let read_size = sequences.iter().map(|_s| 0).collect();
+        Self {
+            automata_runner,
+            notifier,
+            sequences,
+            read_size,
+        }
+    }
+}
+
+impl<'a, Notifier: ResultNotifier> HyperPatternMatching
+    for NaiveHyperPatternMatching<'a, Notifier>
+{
+    fn feed(&mut self, action: &String, track: usize) {
+        self.sequences[track].append(action.to_string());
+        self.read_size[track] += 1;
+        let mut initial_positions: Vec<Vec<usize>> = Vec::new();
+        if track == 0 {
+            initial_positions.push(vec![self.read_size[track] - 1]);
+        } else {
+            initial_positions
+                .append(&mut ((0..self.read_size[track]).map(|i| vec![i]).collect()));
+        }
+        for i in 1..self.dimensions() {
+            if track == i {
+                initial_positions = initial_positions
+                    .iter()
+                    .map(|pos: &Vec<usize>| {
+                        let mut new_pos = pos.clone();
+                        new_pos.push(self.read_size[track] - 1);
+                        new_pos
+                    })
+                    .collect();
+            } else {
+                initial_positions = (0..self.read_size[i])
+                    .map(|j| {
+                        initial_positions
+                            .iter()
+                            .map(|pos| {
+                                let mut new_pos: Vec<usize> = pos.clone();
+                                new_pos.push(j);
+                                new_pos
+                            })
+                            .collect::<Vec<Vec<usize>>>()
+                    })
+                    .flatten()
+                    .collect();
+            }
+        }
+        for i in 0..initial_positions.len() {
+            let mut new_view = Vec::with_capacity(self.dimensions());
+            for j in 0..self.dimensions() {
+                new_view.push(self.sequences[j].readable_view());
+                new_view[j].start = initial_positions[i][j];
+            }
+            self.automata_runner.insert_from_initial_states(new_view);
+        }
+        self.automata_runner.consume();
+        self.automata_runner.remove_non_waiting_configurations();
+        let final_configurations = self.automata_runner.get_final_configurations();
+        let dimensions = self.dimensions();
+        final_configurations.iter().for_each(|c| {
+            let mut result = Vec::with_capacity(dimensions * 2);
+            for i in 0..dimensions {
+                let begin = c.matching_begin[i];
+                result.push(begin);
+                let end = c.input_sequence[i].start - 1;
+                result.push(end);
+            }
+            self.notifier.notify(&result);
+        });
+    }
+
+    fn dimensions(&self) -> usize {
+        self.sequences.len()
     }
 }
 
