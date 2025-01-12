@@ -63,7 +63,8 @@ mod tests {
         let input_buffers_source: Vec<SharedBufferSource<&str>> =
             input_buffers.iter().map(|buf| buf.make_source()).collect();
         let reader = MultiStreamReader::new(
-            input_buffers.clone()
+            input_buffers
+                .clone()
                 .into_iter()
                 .map(|buf| Box::new(buf) as Box<dyn StreamSource>)
                 .collect(),

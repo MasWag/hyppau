@@ -197,8 +197,7 @@ impl<'a, Notifier: ResultNotifier> HyperPatternMatching
         if track == 0 {
             initial_positions.push(vec![self.read_size[track] - 1]);
         } else {
-            initial_positions
-                .append(&mut ((0..self.read_size[track]).map(|i| vec![i]).collect()));
+            initial_positions.append(&mut ((0..self.read_size[track]).map(|i| vec![i]).collect()));
         }
         for i in 1..self.dimensions() {
             if track == i {
@@ -344,9 +343,7 @@ mod tests {
         sequences[0].append("c".to_string());
         sequences[1].append("d".to_string());
 
-        let mut runner = PatternMatchingAutomataRunner::new(
-            &automata,
-        );
+        let mut runner = PatternMatchingAutomataRunner::new(&automata);
         runner.insert_from_initial_states(sequences.iter().map(|s| s.readable_view()).collect());
         runner.consume();
 
