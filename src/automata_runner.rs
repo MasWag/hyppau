@@ -39,11 +39,7 @@ pub trait AutomataRunner<'a, C: AutomataConfiguration<'a>> {
     /// * `automaton` - A reference to the automaton.
     /// * `input_sequence` - A vector of `ReadableView<String>` representing the
     ///   inputs to the automaton.
-    fn insert_from_initial_states(
-        &mut self,
-        automaton: &'a Automata<'a>,
-        input_sequence: Vec<ReadableView<String>>,
-    );
+    fn insert_from_initial_states(&mut self, input_sequence: Vec<ReadableView<String>>);
 
     /// Consumes the input sequence and move to the successors.
     fn consume(&mut self) {
@@ -74,6 +70,7 @@ pub trait AutomataRunner<'a, C: AutomataConfiguration<'a>> {
 /// This runner supports inserting configurations, iterating over them, and
 /// performing saturation expansions with `consume`.
 pub struct SimpleAutomataRunner<'a> {
+    automaton: &'a Automata<'a>,
     /// The current set of configurations of type `SimpleAutomataConfiguration`.
     /// Each configuration is unique in the set (thanks to `Hash`/`Eq`).
     pub current_configurations: HashSet<SimpleAutomataConfiguration<'a>>,
@@ -99,6 +96,7 @@ impl<'a> SimpleAutomataRunner<'a> {
             current_configurations.insert(config);
         }
         Self {
+            automaton,
             current_configurations,
         }
     }
@@ -123,12 +121,8 @@ impl<'a> AutomataRunner<'a, SimpleAutomataConfiguration<'a>> for SimpleAutomataR
 
     /// Inserts new configurations for each initial state of the given automaton,
     /// using the provided `input_sequence`.
-    fn insert_from_initial_states(
-        &mut self,
-        automaton: &'a Automata<'a>,
-        input_sequence: Vec<ReadableView<String>>,
-    ) {
-        for initial_state in automaton.initial_states.iter() {
+    fn insert_from_initial_states(&mut self, input_sequence: Vec<ReadableView<String>>) {
+        for initial_state in self.automaton.initial_states.iter() {
             let config = SimpleAutomataConfiguration::new(initial_state, input_sequence.clone());
             self.current_configurations.insert(config);
         }

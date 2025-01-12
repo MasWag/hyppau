@@ -12,6 +12,7 @@ trait HyperPatternMatching {
 
 pub struct PatternMatchingAutomataRunner<'a> {
     /// The current set of configurations of type `PatternMatchingAutomataConfiguration`.
+    automaton: &'a Automata<'a>,
     /// Each configuration is unique in the set (thanks to `Hash`/`Eq`).
     pub current_configurations: HashSet<PatternMatchingAutomataConfiguration<'a>>,
 }
@@ -29,14 +30,10 @@ impl<'a> PatternMatchingAutomataRunner<'a> {
     /// # Returns
     ///
     /// A new `PatternMatchingAutomataRunner` with initial configurations set up.
-    pub fn new(automaton: &'a Automata<'a>, input_sequence: Vec<ReadableView<String>>) -> Self {
-        let mut current_configurations = HashSet::new();
-        for initial_state in automaton.initial_states.iter() {
-            let config =
-                PatternMatchingAutomataConfiguration::new(initial_state, input_sequence.clone());
-            current_configurations.insert(config);
-        }
+    pub fn new(automaton: &'a Automata<'a>) -> Self {
+        let current_configurations = HashSet::new();
         Self {
+            automaton,
             current_configurations,
         }
     }
@@ -76,12 +73,8 @@ impl<'a> AutomataRunner<'a, PatternMatchingAutomataConfiguration<'a>>
 
     /// Inserts new configurations for each initial state of the given automaton,
     /// using the provided `input_sequence`.
-    fn insert_from_initial_states(
-        &mut self,
-        automaton: &'a Automata<'a>,
-        input_sequence: Vec<ReadableView<String>>,
-    ) {
-        for initial_state in automaton.initial_states.iter() {
+    fn insert_from_initial_states(&mut self, input_sequence: Vec<ReadableView<String>>) {
+        for initial_state in self.automaton.initial_states.iter() {
             let config =
                 PatternMatchingAutomataConfiguration::new(initial_state, input_sequence.clone());
             self.current_configurations.insert(config);
@@ -116,7 +109,7 @@ impl<'a> PatternMatchingAutomataConfiguration<'a> {
         Self {
             current_state,
             input_sequence,
-            matching_begin: matching_begin,
+            matching_begin,
         }
     }
 
@@ -257,8 +250,8 @@ mod tests {
 
         let mut runner = PatternMatchingAutomataRunner::new(
             &automata,
-            sequences.iter().map(|s| s.readable_view()).collect(),
         );
+        runner.insert_from_initial_states(sequences.iter().map(|s| s.readable_view()).collect());
         runner.consume();
 
         let successors = runner.current_configurations;
