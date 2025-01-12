@@ -3,16 +3,16 @@ use std::fs::File;
 use std::io::{self, Write};
 
 // Trait of a notifier of results
-trait ResultNotifier {
+pub trait ResultNotifier {
     // Notify the result of hyper pattern matching, which is a vector of integers representing the ranges of the matching
-    fn notify(&mut self, result: Vec<i32>);
+    fn notify(&mut self, result: &Vec<usize>);
 }
 
 // Notifyer to write the result to stdout
 pub struct StdoutResultNotifier;
 
 impl ResultNotifier for StdoutResultNotifier {
-    fn notify(&mut self, result: Vec<i32>) {
+    fn notify(&mut self, result: &Vec<usize>) {
         // read result as a sequence of pair of integers
         for i in (0..result.len()).step_by(2) {
             print!("({}, {})", result[i], result[i + 1]);
@@ -27,26 +27,18 @@ impl ResultNotifier for StdoutResultNotifier {
 
 // Notifier to write the result to SharedBuffer
 pub struct SharedBufferResultNotifier {
-    buffer: SharedBufferSource,
+    buffer: SharedBufferSource<Vec<usize>>,
 }
 
 impl SharedBufferResultNotifier {
-    pub fn new(buffer: SharedBufferSource) -> Self {
-        Self { buffer }
+    pub fn new(buffer: SharedBufferSource<Vec<usize>>) -> Self {
+        SharedBufferResultNotifier { buffer }
     }
 }
 
 impl ResultNotifier for SharedBufferResultNotifier {
-    fn notify(&mut self, result: Vec<i32>) {
-        let mut line = String::new();
-        // read result as a sequence of pair of integers
-        for i in (0..result.len()).step_by(2) {
-            line.push_str(&format!("({}, {})", result[i], result[i + 1]));
-            if i + 2 < result.len() {
-                line += ", ";
-            }
-        }
-        self.buffer.push(&line);
+    fn notify(&mut self, result: &Vec<usize>) {
+        self.buffer.push(result.clone());
     }
 }
 
@@ -63,7 +55,7 @@ impl FileResultNotifier {
 }
 
 impl ResultNotifier for FileResultNotifier {
-    fn notify(&mut self, result: Vec<i32>) {
+    fn notify(&mut self, result: &Vec<usize>) {
         let mut line = String::new();
         // read result as a sequence of pair of integers
         for i in (0..result.len()).step_by(2) {
@@ -80,13 +72,12 @@ impl ResultNotifier for FileResultNotifier {
 mod tests {
     use super::*;
     use crate::shared_buffer::SharedBuffer;
-    use std::io::BufRead;
     use tempfile::NamedTempFile;
 
     #[test]
     fn test_stdout_result_notifier() {
         let mut notifier = StdoutResultNotifier;
-        notifier.notify(vec![1, 2, 3, 4]);
+        notifier.notify(&vec![1, 2, 3, 4]);
         // Manually check the output
     }
 
@@ -95,7 +86,7 @@ mod tests {
         let temp_file = NamedTempFile::new()?;
         {
             let mut notifier = FileResultNotifier::new(temp_file.path().to_str().unwrap())?;
-            notifier.notify(vec![1, 2, 3, 4]);
+            notifier.notify(&vec![1, 2, 3, 4]);
         }
         let content = std::fs::read_to_string(temp_file.path())?;
         assert_eq!(content.trim(), "(1, 2), (3, 4)");
@@ -104,12 +95,16 @@ mod tests {
 
     #[test]
     fn test_shared_buffer_result_notifier() {
-        let mut buffer = SharedBuffer::new();
+        let buffer = SharedBuffer::new();
         let source = buffer.make_source();
         let mut notifier = SharedBufferResultNotifier::new(source);
-        notifier.notify(vec![1, 2, 3, 4]);
-        let mut result = String::new();
-        let _ = buffer.read_line(&mut result);
-        assert_eq!(result, "(1, 2), (3, 4)\n".to_string());
+        notifier.notify(&vec![1, 2, 3, 4]);
+        let mut reader = buffer.make_sink();
+        let result = reader.pop();
+        assert!(result.is_some());
+        assert_eq!(result.clone().unwrap().len(), 4);
+        for i in 0..4 {
+            assert_eq!(result.clone().unwrap()[i], i as usize + 1);
+        }
     }
 }

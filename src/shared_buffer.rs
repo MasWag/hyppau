@@ -6,67 +6,12 @@ use std::sync::{Arc, Mutex};
 ///
 /// This structure is designed for real-time data streams where multiple producers
 /// and consumers can interact with the buffer safely.
-pub struct SharedBuffer {
-    buffer: Arc<Mutex<VecDeque<String>>>,
+pub struct SharedBuffer<T> {
+    buffer: Arc<Mutex<VecDeque<T>>>,
     internal_buf: Vec<u8>, // Persistent internal buffer for `fill_buf`
 }
 
-/// A producer for the `SharedBuffer`, allowing data to be added.
-pub struct SharedBufferSource {
-    buffer: Arc<Mutex<VecDeque<String>>>,
-}
-
-/// A consumer for the `SharedBuffer`, allowing data to be read in sequence.
-pub struct SharedBufferSink {
-    buffer: Arc<Mutex<VecDeque<String>>>,
-    start: usize, // Start index of the readable range
-}
-
-impl SharedBufferSource {
-    /// Creates a new source for the given shared buffer.
-    ///
-    /// # Arguments
-    /// - `buffer`: The shared buffer to which this source will write data.
-    pub fn new(buffer: Arc<Mutex<VecDeque<String>>>) -> Self {
-        Self { buffer }
-    }
-
-    /// Adds a line of data to the buffer.
-    ///
-    /// # Arguments
-    /// - `line`: The data to be added to the buffer.
-    pub fn push(&self, line: &str) {
-        let mut buffer = self.buffer.lock().unwrap();
-        buffer.push_back(line.to_string());
-    }
-}
-
-impl SharedBufferSink {
-    /// Creates a new sink for the given shared buffer.
-    ///
-    /// # Arguments
-    /// - `buffer`: The shared buffer from which this sink will read data.
-    pub fn new(buffer: Arc<Mutex<VecDeque<String>>>) -> Self {
-        Self { buffer, start: 0 }
-    }
-
-    /// Reads the next line of data from the buffer.
-    ///
-    /// # Returns
-    /// - `Some(String)`: The next line of data if available.
-    /// - `None`: If no more data is available.
-    pub fn pop(&mut self) -> Option<String> {
-        let buffer = self.buffer.lock().unwrap();
-        if buffer.len() > self.start {
-            self.start += 1;
-            Some(buffer[self.start - 1].clone())
-        } else {
-            None
-        }
-    }
-}
-
-impl SharedBuffer {
+impl<T: Clone> SharedBuffer<T> {
     /// Creates a new shared buffer.
     pub fn new() -> Self {
         Self {
@@ -79,16 +24,16 @@ impl SharedBuffer {
     ///
     /// # Arguments
     /// - `line`: The data to be added.
-    pub fn push(&self, line: &str) {
+    pub fn push(&self, line: T) {
         let mut buffer = self.buffer.lock().unwrap();
-        buffer.push_back(line.to_string());
+        buffer.push_back(line);
     }
 
     /// Creates a source for the shared buffer.
     ///
     /// # Returns
     /// A `SharedBufferSource` that can write to the buffer.
-    pub fn make_source(&self) -> SharedBufferSource {
+    pub fn make_source(&self) -> SharedBufferSource<T> {
         SharedBufferSource::new(self.buffer.clone())
     }
 
@@ -96,12 +41,21 @@ impl SharedBuffer {
     ///
     /// # Returns
     /// A `SharedBufferSink` that can read from the buffer.
-    pub fn make_sink(&self) -> SharedBufferSink {
+    pub fn make_sink(&self) -> SharedBufferSink<T> {
         SharedBufferSink::new(self.buffer.clone())
     }
 }
 
-impl std::io::Read for SharedBuffer {
+impl<T> Clone for SharedBuffer<T> {
+    fn clone(&self) -> Self {
+        Self {
+            buffer: self.buffer.clone(),
+            internal_buf: Vec::new(),
+        }
+    }
+}
+
+impl io::Read for SharedBuffer<&str> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let mut buffer = self.buffer.lock().unwrap();
 
@@ -116,7 +70,7 @@ impl std::io::Read for SharedBuffer {
     }
 }
 
-impl BufRead for SharedBuffer {
+impl BufRead for SharedBuffer<&str> {
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
         if self.internal_buf.is_empty() {
             if let Some(line) = self.buffer.lock().unwrap().pop_front() {
@@ -137,6 +91,61 @@ impl BufRead for SharedBuffer {
     }
 }
 
+/// A producer for the `SharedBuffer`, allowing data to be added.
+pub struct SharedBufferSource<T> {
+    buffer: Arc<Mutex<VecDeque<T>>>,
+}
+
+impl<T> SharedBufferSource<T> {
+    /// Creates a new source for the given shared buffer.
+    ///
+    /// # Arguments
+    /// - `buffer`: The shared buffer to which this source will write data.
+    pub fn new(buffer: Arc<Mutex<VecDeque<T>>>) -> Self {
+        Self { buffer }
+    }
+
+    /// Adds a line of data to the buffer.
+    ///
+    /// # Arguments
+    /// - `line`: The data to be added to the buffer.
+    pub fn push(&self, line: T) {
+        let mut buffer = self.buffer.lock().unwrap();
+        buffer.push_back(line);
+    }
+}
+
+/// A consumer for the `SharedBuffer`, allowing data to be read in sequence.
+pub struct SharedBufferSink<T> {
+    buffer: Arc<Mutex<VecDeque<T>>>,
+    start: usize, // Start index of the readable range
+}
+
+impl<T: Clone> SharedBufferSink<T> {
+    /// Creates a new sink for the given shared buffer.
+    ///
+    /// # Arguments
+    /// - `buffer`: The shared buffer from which this sink will read data.
+    pub fn new(buffer: Arc<Mutex<VecDeque<T>>>) -> Self {
+        Self { buffer, start: 0 }
+    }
+
+    /// Reads the next line of data from the buffer.
+    ///
+    /// # Returns
+    /// - `Some(T)`: The next line of data if available.
+    /// - `None`: If no more data is available.
+    pub fn pop(&mut self) -> Option<T> {
+        let buffer = self.buffer.lock().unwrap();
+        if buffer.len() > self.start {
+            self.start += 1;
+            Some(buffer[self.start - 1].clone())
+        } else {
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,8 +159,8 @@ mod tests {
         source.push("hello");
         source.push("world");
 
-        assert_eq!(sink.pop(), Some("hello".to_string()));
-        assert_eq!(sink.pop(), Some("world".to_string()));
+        assert_eq!(sink.pop(), Some("hello"));
+        assert_eq!(sink.pop(), Some("world"));
         assert_eq!(sink.pop(), None);
     }
 
@@ -165,10 +174,10 @@ mod tests {
         source.push("data1");
         source.push("data2");
 
-        assert_eq!(sink1.pop(), Some("data1".to_string()));
-        assert_eq!(sink2.pop(), Some("data1".to_string()));
-        assert_eq!(sink1.pop(), Some("data2".to_string()));
-        assert_eq!(sink2.pop(), Some("data2".to_string()));
+        assert_eq!(sink1.pop(), Some("data1"));
+        assert_eq!(sink2.pop(), Some("data1"));
+        assert_eq!(sink1.pop(), Some("data2"));
+        assert_eq!(sink2.pop(), Some("data2"));
     }
 
     #[test]
