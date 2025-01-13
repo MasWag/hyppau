@@ -1,16 +1,48 @@
 use crate::hyper_pattern_matching::HyperPatternMatching;
 use crate::multi_stream_reader::MultiStreamReader;
 
+/// A scheduler that continuously reads from multiple input streams and feeds lines into a
+/// [`HyperPatternMatching`] implementation.
+///
+/// # Type Parameters
+///
+/// * `Matching` - A type that implements the [`HyperPatternMatching`] trait.
+///   This specifies the algorithm for hyper pattern matching.
 struct ReadingScheduler<Matching: HyperPatternMatching> {
     matching: Matching,
     reader: MultiStreamReader,
 }
 
 impl<Matching: HyperPatternMatching> ReadingScheduler<Matching> {
+    /// Creates a new `ReadingScheduler` from the given matching engine and `MultiStreamReader`.
+    ///
+    /// # Parameters
+    ///
+    /// * `matching` - An implementation of [`HyperPatternMatching`].
+    /// * `reader` - A [`MultiStreamReader`] that manages multiple input streams.
+    ///
+    /// # Returns
+    ///
+    /// A new `ReadingScheduler` instance.
     pub fn new(matching: Matching, reader: MultiStreamReader) -> Self {
         Self { matching, reader }
     }
 
+    /// Runs the scheduler until the end of all streams.
+    ///
+    /// The scheduler repeatedly reads lines from each available stream. When a line is
+    /// successfully read, it is passed to the [`HyperPatternMatching::feed`] method, which
+    /// processes it according to the pattern-matching logic.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Pseudocode snippet showing how you might run the scheduler:
+    /// let matching = MyPatternMatcher::new(...);
+    /// let reader = MultiStreamReader::new(...);
+    /// let mut scheduler = ReadingScheduler::new(matching, reader);
+    /// scheduler.run();
+    /// ```
     pub fn run(&mut self) {
         let mut done: Vec<bool> = (0..self.reader.size()).map(|_| false).collect();
         while done.iter().any(|x| !*x) {
