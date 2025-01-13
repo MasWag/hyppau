@@ -57,44 +57,6 @@ impl<'a> Hash for State<'a> {
     }
 }
 
-impl<'a> State<'a> {
-    /// Given a vector of actions, consumes it and returns the successors.
-    ///
-    /// # Arguments
-    ///
-    /// * `action` - The vector of actions to consume. Notice that each action is a vector of strings because we are working on k-track automata.
-    ///
-    /// # Returns
-    ///
-    /// A vector of pairs, where each pair consists of the target state and the remaining actions.
-    pub fn consume(&self, action: Vec<String>) -> Vec<(&State<'a>, Vec<String>)> {
-        let mut successors = Vec::new();
-        for transition in self.transitions.borrow().iter() {
-            // Make a copy of action
-            let mut remaining_action = Vec::with_capacity(action.len());
-            assert_eq!(
-                remaining_action.len(),
-                transition.action.len(),
-                "Action length mismatch"
-            );
-            // Check if for element in transition.action, there is a corresponding element in action or transition.action is epsilon
-            let mut is_valid = true;
-            for i in 0..transition.action.len() {
-                if transition.action[i] != "" && transition.action[i] != remaining_action[i] {
-                    is_valid = false;
-                    break;
-                } else {
-                    remaining_action[i] = "".to_string();
-                }
-            }
-            if is_valid {
-                successors.push((transition.next_state, remaining_action));
-            }
-        }
-        successors
-    }
-}
-
 /// Represents a finite automaton.
 ///
 /// An automaton consists of a set of states, transitions, and initial states.
