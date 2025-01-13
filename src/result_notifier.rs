@@ -2,52 +2,96 @@ use crate::shared_buffer::SharedBufferSource;
 use std::fs::File;
 use std::io::{self, Write};
 
-// Trait of a notifier of results
-pub trait ResultNotifier {
-    // Notify the result of hyper pattern matching, which is a vector of integers representing the ranges of the matching
-    fn notify(&mut self, result: &Vec<usize>);
+/// Represents a matching interval
+#[derive(PartialEq, Eq, Debug, Hash, Clone)]
+pub struct MatchingInterval {
+    pub start: usize,
+    pub end: usize,
 }
 
-// Notifyer to write the result to stdout
-pub struct StdoutResultNotifier;
-
-impl ResultNotifier for StdoutResultNotifier {
-    fn notify(&mut self, result: &Vec<usize>) {
-        // read result as a sequence of pair of integers
-        for i in (0..result.len()).step_by(2) {
-            print!("({}, {})", result[i], result[i + 1]);
-            if i + 2 < result.len() {
-                print!(", ");
-            } else {
-                println!();
-            }
-        }
+impl MatchingInterval {
+    pub fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
     }
 }
 
-// Notifier to write the result to SharedBuffer
+/// A trait representing a way to notify or record matching results.
+///
+/// Each result is a sequence of `MatchingInterval` values interpreted as `(start, end)` pairs.
+/// For example, if `result = [[1, 2], [3, 4]]`, that represents two matches:
+/// (1, 2) and (3, 4).
+pub trait ResultNotifier {
+    /// Notifies a result, represented as a slice of `MatchingInterval` pairs.
+    fn notify(&mut self, result: &[MatchingInterval]);
+}
+
+/// A `ResultNotifier` implementation that prints matched ranges to `stdout`.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// let mut notifier = StdoutResultNotifier;
+/// notifier.notify(&[[1, 2], [3, 4]]); // prints "(1, 2), (3, 4)"
+/// ```
+pub struct StdoutResultNotifier;
+
+impl ResultNotifier for StdoutResultNotifier {
+    fn notify(&mut self, result: &[MatchingInterval]) {
+        // Build a single string containing all pairs, then print once.
+        // This approach is efficient in a single-threaded context.
+        let mut output = String::new();
+        for i in 0..result.len() {
+            output.push_str(&format!("({}, {})", result[i].start, result[i].end));
+            if i + 1 < result.len() {
+                output.push_str(", ");
+            }
+        }
+        println!("{}", output);
+    }
+}
+
+/// A `ResultNotifier` that stores matched ranges in a shared in-memory buffer.
+///
+/// # Type Parameters
+///
+/// - `SharedBufferSource<Vec<MatchingInterval>>` is the source/sink type for the buffer.
+///
 pub struct SharedBufferResultNotifier {
-    buffer: SharedBufferSource<Vec<usize>>,
+    buffer: SharedBufferSource<Vec<MatchingInterval>>,
 }
 
 impl SharedBufferResultNotifier {
-    pub fn new(buffer: SharedBufferSource<Vec<usize>>) -> Self {
-        SharedBufferResultNotifier { buffer }
+    /// Creates a new `SharedBufferResultNotifier` from a `SharedBufferSource`.
+    pub fn new(buffer: SharedBufferSource<Vec<MatchingInterval>>) -> Self {
+        Self { buffer }
     }
 }
 
 impl ResultNotifier for SharedBufferResultNotifier {
-    fn notify(&mut self, result: &Vec<usize>) {
-        self.buffer.push(result.clone());
+    fn notify(&mut self, result: &[MatchingInterval]) {
+        // We clone because we need to store these values beyond the scope of this call.
+        self.buffer.push(result.to_vec());
     }
 }
 
-// Notifier to write the result to a file
+/// A `ResultNotifier` that writes matched ranges to a file.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// let mut notifier = FileResultNotifier::new("output.txt").unwrap();
+/// notifier.notify(&[[1, 2], [3, 4]]); // writes "(1, 2), (3, 4)" to "output.txt"
+/// ```
 pub struct FileResultNotifier {
     file: File,
 }
 
 impl FileResultNotifier {
+    /// Creates a new `FileResultNotifier` that writes to the specified file path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `io::Error` if the file cannot be created.
     pub fn new(file_path: &str) -> io::Result<Self> {
         let file = File::create(file_path)?;
         Ok(Self { file })
@@ -55,15 +99,16 @@ impl FileResultNotifier {
 }
 
 impl ResultNotifier for FileResultNotifier {
-    fn notify(&mut self, result: &Vec<usize>) {
+    fn notify(&mut self, result: &[MatchingInterval]) {
+        // Build a single line, then write it at once.
         let mut line = String::new();
-        // read result as a sequence of pair of integers
-        for i in (0..result.len()).step_by(2) {
-            line.push_str(&format!("({}, {})", result[i], result[i + 1]));
-            if i + 2 < result.len() {
-                line += ", ";
+        for i in 0..result.len() {
+            line.push_str(&format!("({}, {})", result[i].start, result[i].end));
+            if i + 1 < result.len() {
+                line.push_str(", ");
             }
         }
+        // Use `writeln!` to append a newline.
         writeln!(self.file, "{}", line).expect("Failed to write to file");
     }
 }
@@ -76,9 +121,10 @@ mod tests {
 
     #[test]
     fn test_stdout_result_notifier() {
+        // Hard to test stdout automatically, but we can call it to ensure no panics.
         let mut notifier = StdoutResultNotifier;
-        notifier.notify(&vec![1, 2, 3, 4]);
-        // Manually check the output
+        notifier.notify(&[MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)]);
+        // Manually check the console output if needed.
     }
 
     #[test]
@@ -86,7 +132,7 @@ mod tests {
         let temp_file = NamedTempFile::new()?;
         {
             let mut notifier = FileResultNotifier::new(temp_file.path().to_str().unwrap())?;
-            notifier.notify(&vec![1, 2, 3, 4]);
+            notifier.notify(&[MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)]);
         }
         let content = std::fs::read_to_string(temp_file.path())?;
         assert_eq!(content.trim(), "(1, 2), (3, 4)");
@@ -98,13 +144,14 @@ mod tests {
         let buffer = SharedBuffer::new();
         let source = buffer.make_source();
         let mut notifier = SharedBufferResultNotifier::new(source);
-        notifier.notify(&vec![1, 2, 3, 4]);
-        let mut reader = buffer.make_sink();
-        let result = reader.pop();
-        assert!(result.is_some());
-        assert_eq!(result.clone().unwrap().len(), 4);
-        for i in 0..4 {
-            assert_eq!(result.clone().unwrap()[i], i as usize + 1);
-        }
+        notifier.notify(&[MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)]);
+
+        let mut sink = buffer.make_sink();
+        let result = sink.pop().expect("No data in shared buffer");
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            result,
+            vec![MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)]
+        );
     }
 }

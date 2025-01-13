@@ -1,5 +1,6 @@
 use crate::hyper_pattern_matching::HyperPatternMatching;
 use crate::multi_stream_reader::MultiStreamReader;
+use crate::result_notifier::MatchingInterval;
 
 /// A scheduler that continuously reads from multiple input streams and feeds lines into a
 /// [`HyperPatternMatching`] implementation.
@@ -132,11 +133,29 @@ mod tests {
         }
 
         assert_eq!(results.len(), 6);
-        assert!(results.contains(&vec![0, 2, 1, 1]));
-        assert!(results.contains(&vec![1, 2, 1, 1]));
-        assert!(results.contains(&vec![2, 2, 1, 1]));
-        assert!(results.contains(&vec![0, 2, 2, 2]));
-        assert!(results.contains(&vec![1, 2, 2, 2]));
-        assert!(results.contains(&vec![2, 2, 2, 2]));
+        assert!(results.contains(&vec![
+            MatchingInterval::new(0, 2),
+            MatchingInterval::new(1, 1)
+        ]));
+        assert!(results.contains(&vec![
+            MatchingInterval::new(1, 2),
+            MatchingInterval::new(1, 1)
+        ]));
+        assert!(results.contains(&vec![
+            MatchingInterval::new(2, 2),
+            MatchingInterval::new(1, 1)
+        ]));
+        assert!(results.contains(&vec![
+            MatchingInterval::new(0, 2),
+            MatchingInterval::new(2, 2)
+        ]));
+        assert!(results.contains(&vec![
+            MatchingInterval::new(1, 2),
+            MatchingInterval::new(2, 2)
+        ]));
+        assert!(results.contains(&vec![
+            MatchingInterval::new(2, 2),
+            MatchingInterval::new(2, 2)
+        ]));
     }
 }

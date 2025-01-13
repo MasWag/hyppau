@@ -1,7 +1,8 @@
 use crate::automata::{Automata, State, Transition};
-use crate::automata_runner::AppendOnlySequence;
-use crate::automata_runner::{AutomataConfiguration, AutomataRunner, ReadableView};
-use crate::result_notifier::ResultNotifier;
+use crate::automata_runner::{
+    AppendOnlySequence, AutomataConfiguration, AutomataRunner, ReadableView,
+};
+use crate::result_notifier::{MatchingInterval, ResultNotifier};
 use itertools::Itertools;
 use std::cell::Ref;
 use std::collections::hash_set::Iter;
@@ -231,12 +232,11 @@ impl<'a, Notifier: ResultNotifier> HyperPatternMatching
         let final_configurations = self.automata_runner.get_final_configurations();
         let dimensions = self.dimensions();
         final_configurations.iter().for_each(|c| {
-            let mut result = Vec::with_capacity(dimensions * 2);
+            let mut result = Vec::with_capacity(dimensions);
             for i in 0..dimensions {
                 let begin = c.matching_begin[i];
-                result.push(begin);
                 let end = c.input_sequence[i].start - 1;
-                result.push(end);
+                result.push(MatchingInterval::new(begin, end));
             }
             self.notifier.notify(&result);
         });
