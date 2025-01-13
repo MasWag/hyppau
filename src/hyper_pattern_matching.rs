@@ -2,6 +2,7 @@ use crate::automata::{Automata, State, Transition};
 use crate::automata_runner::AppendOnlySequence;
 use crate::automata_runner::{AutomataConfiguration, AutomataRunner, ReadableView};
 use crate::result_notifier::ResultNotifier;
+use itertools::Itertools;
 use std::cell::Ref;
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
@@ -9,7 +10,7 @@ use std::collections::HashSet;
 // Trait of pattern matching algorithms
 pub trait HyperPatternMatching {
     // Feed a string-valued action to the given track
-    fn feed(&mut self, action: &String, track: usize);
+    fn feed(&mut self, action: &str, track: usize);
 
     fn dimensions(&self) -> usize;
 }
@@ -185,51 +186,43 @@ impl<'a, Notifier: ResultNotifier> NaiveHyperPatternMatching<'a, Notifier> {
             read_size,
         }
     }
+
+    fn build_initial_positions(&self, track: usize) -> Vec<Vec<usize>> {
+        let dims = self.dimensions();
+        let mut all_dims = Vec::with_capacity(dims);
+
+        for dim in 0..dims {
+            if dim == track {
+                all_dims.push(vec![self.read_size[dim] - 1]);
+            } else {
+                all_dims.push((0..self.read_size[dim]).collect::<Vec<usize>>());
+            }
+        }
+
+        // multi_cartesian_product() returns an iterator of Vec<&usize>
+        // We need to turn them into Vec<usize> by mapping (copying) each element.
+        all_dims
+            .iter()
+            .multi_cartesian_product()
+            .map(|combo_of_refs| {
+                // combo_of_refs is Vec<&usize>. Convert it to Vec<usize>.
+                combo_of_refs.into_iter().copied().collect::<Vec<usize>>()
+            })
+            .collect::<Vec<Vec<usize>>>()
+    }
 }
 
 impl<'a, Notifier: ResultNotifier> HyperPatternMatching
     for NaiveHyperPatternMatching<'a, Notifier>
 {
-    fn feed(&mut self, action: &String, track: usize) {
+    fn feed(&mut self, action: &str, track: usize) {
         self.sequences[track].append(action.to_string());
         self.read_size[track] += 1;
-        let mut initial_positions: Vec<Vec<usize>> = Vec::new();
-        if track == 0 {
-            initial_positions.push(vec![self.read_size[track] - 1]);
-        } else {
-            initial_positions.append(&mut ((0..self.read_size[track]).map(|i| vec![i]).collect()));
-        }
-        for i in 1..self.dimensions() {
-            if track == i {
-                initial_positions = initial_positions
-                    .iter()
-                    .map(|pos: &Vec<usize>| {
-                        let mut new_pos = pos.clone();
-                        new_pos.push(self.read_size[track] - 1);
-                        new_pos
-                    })
-                    .collect();
-            } else {
-                initial_positions = (0..self.read_size[i])
-                    .map(|j| {
-                        initial_positions
-                            .iter()
-                            .map(|pos| {
-                                let mut new_pos: Vec<usize> = pos.clone();
-                                new_pos.push(j);
-                                new_pos
-                            })
-                            .collect::<Vec<Vec<usize>>>()
-                    })
-                    .flatten()
-                    .collect();
-            }
-        }
-        for i in 0..initial_positions.len() {
+        for initial_position in self.build_initial_positions(track) {
             let mut new_view = Vec::with_capacity(self.dimensions());
             for j in 0..self.dimensions() {
                 new_view.push(self.sequences[j].readable_view());
-                new_view[j].start = initial_positions[i][j];
+                new_view[j].start = initial_position[j];
             }
             self.automata_runner.insert_from_initial_states(new_view);
         }
