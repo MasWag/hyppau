@@ -14,6 +14,10 @@ pub trait HyperPatternMatching {
     fn feed(&mut self, action: &str, track: usize);
 
     fn dimensions(&self) -> usize;
+
+    fn consume_remaining(&mut self);
+
+    fn set_eof(&mut self, track: usize);
 }
 
 pub struct PatternMatchingAutomataRunner<'a> {
@@ -21,6 +25,8 @@ pub struct PatternMatchingAutomataRunner<'a> {
     automaton: &'a Automata<'a>,
     /// Each configuration is unique in the set (thanks to `Hash`/`Eq`).
     pub current_configurations: HashSet<PatternMatchingAutomataConfiguration<'a>>,
+    /// The possible streams to be used
+    views: Vec<ReadableView<String>>,
 }
 
 impl<'a> PatternMatchingAutomataRunner<'a> {
@@ -30,17 +36,16 @@ impl<'a> PatternMatchingAutomataRunner<'a> {
     /// # Arguments
     ///
     /// * `automaton` - The automaton containing states and transitions.
-    /// * `input_sequence` - A vector of input views to be associated with each
-    ///   newly created configuration.
     ///
     /// # Returns
     ///
     /// A new `PatternMatchingAutomataRunner` with initial configurations set up.
-    pub fn new(automaton: &'a Automata<'a>) -> Self {
+    pub fn new(automaton: &'a Automata<'a>, views: Vec<ReadableView<String>>) -> Self {
         let current_configurations = HashSet::new();
         Self {
             automaton,
             current_configurations,
+            views,
         }
     }
 
@@ -80,9 +85,22 @@ impl<'a> AutomataRunner<'a, PatternMatchingAutomataConfiguration<'a>>
     /// Inserts new configurations for each initial state of the given automaton,
     /// using the provided `input_sequence`.
     fn insert_from_initial_states(&mut self, input_sequence: Vec<ReadableView<String>>) {
+        let mut ids = vec![];
+        for sequence in &input_sequence {
+            for i in 0..self.views.len() {
+                if self.views[i].same_data(&sequence) {
+                    ids.push(i);
+                    break;
+                }
+            }
+        }
+
         for initial_state in self.automaton.initial_states.iter() {
-            let config =
-                PatternMatchingAutomataConfiguration::new(initial_state, input_sequence.clone());
+            let config = PatternMatchingAutomataConfiguration::new(
+                initial_state,
+                input_sequence.clone(),
+                ids.clone(),
+            );
             self.current_configurations.insert(config);
         }
     }
@@ -99,6 +117,9 @@ pub struct PatternMatchingAutomataConfiguration<'a> {
     pub input_sequence: Vec<ReadableView<String>>,
 
     pub matching_begin: Vec<usize>,
+
+    /// The list of IDs of words we are handling in this configuration.
+    pub ids: Vec<usize>,
 }
 
 impl<'a> PatternMatchingAutomataConfiguration<'a> {
@@ -110,12 +131,17 @@ impl<'a> PatternMatchingAutomataConfiguration<'a> {
     /// * `current_state` - The automaton state this configuration points to.
     /// * `input_sequence` - A vector of `ReadableView<String>` representing
     ///   the input stream for the automaton.
-    pub fn new(current_state: &'a State<'a>, input_sequence: Vec<ReadableView<String>>) -> Self {
+    pub fn new(
+        current_state: &'a State<'a>,
+        input_sequence: Vec<ReadableView<String>>,
+        ids: Vec<usize>,
+    ) -> Self {
         let matching_begin = input_sequence.iter().map(|s| s.start).collect();
         Self {
             current_state,
             input_sequence,
             matching_begin,
+            ids,
         }
     }
 
@@ -142,6 +168,7 @@ impl<'a> AutomataConfiguration<'a> for PatternMatchingAutomataConfiguration<'a> 
             current_state,
             input_sequence: self.input_sequence.clone(),
             matching_begin: self.matching_begin.clone(),
+            ids: self.ids.clone(),
         }
     }
 
@@ -165,21 +192,22 @@ impl<'a> AutomataConfiguration<'a> for PatternMatchingAutomataConfiguration<'a> 
     }
 }
 
-pub struct NaiveHyperPatternMatching<'a, Notifier: ResultNotifier> {
+pub struct OnlineHyperPatternMatching<'a, Notifier: ResultNotifier> {
     automata_runner: PatternMatchingAutomataRunner<'a>,
     notifier: Notifier,
     sequences: Vec<AppendOnlySequence<String>>,
     read_size: Vec<usize>,
 }
 
-impl<'a, Notifier: ResultNotifier> NaiveHyperPatternMatching<'a, Notifier> {
+impl<'a, Notifier: ResultNotifier> OnlineHyperPatternMatching<'a, Notifier> {
     pub fn new(
         automaton: &'a Automata<'a>,
         notifier: Notifier,
         sequences: Vec<AppendOnlySequence<String>>,
     ) -> Self {
-        let automata_runner = PatternMatchingAutomataRunner::new(automaton);
-        let read_size = sequences.iter().map(|_s| 0).collect();
+        let as_readable_view = sequences.iter().map(|s| s.readable_view()).collect();
+        let automata_runner = PatternMatchingAutomataRunner::new(automaton, as_readable_view);
+        let read_size = vec![0; sequences.len()];
         Self {
             automata_runner,
             notifier,
@@ -214,7 +242,7 @@ impl<'a, Notifier: ResultNotifier> NaiveHyperPatternMatching<'a, Notifier> {
 }
 
 impl<'a, Notifier: ResultNotifier> HyperPatternMatching
-    for NaiveHyperPatternMatching<'a, Notifier>
+    for OnlineHyperPatternMatching<'a, Notifier>
 {
     fn feed(&mut self, action: &str, track: usize) {
         self.sequences[track].append(action.to_string());
@@ -238,12 +266,18 @@ impl<'a, Notifier: ResultNotifier> HyperPatternMatching
                 let end = c.input_sequence[i].start - 1;
                 result.push(MatchingInterval::new(begin, end));
             }
-            self.notifier.notify(&result);
+            self.notifier.notify(&result, &c.ids);
         });
     }
 
     fn dimensions(&self) -> usize {
         self.sequences.len()
+    }
+
+    fn consume_remaining(&mut self) {
+    }
+
+    fn set_eof(&mut self, track: usize) {        
     }
 }
 
@@ -257,7 +291,7 @@ mod tests {
     fn test_automata_configuration_successors() {
         let state_arena = Arena::new();
         let transition_arena = Arena::new();
-        let mut automata = Automata::new(&state_arena, &transition_arena);
+        let mut automata = Automata::new(&state_arena, &transition_arena, 2);
 
         let s1 = automata.add_state(true, false);
         let s12 = automata.add_state(false, false);
@@ -281,6 +315,7 @@ mod tests {
         let config = PatternMatchingAutomataConfiguration::new(
             &s1,
             sequences.iter().map(|s| s.readable_view()).collect(),
+            vec![0, 1],
         );
 
         let successors = config.successors();
@@ -291,7 +326,8 @@ mod tests {
         {
             let view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
-            let mut configuration = PatternMatchingAutomataConfiguration::new(s12, view);
+            let mut configuration =
+                PatternMatchingAutomataConfiguration::new(s12, view, vec![0, 1]);
             configuration.input_advance(0, 1);
             assert!(successors.contains(&configuration));
         }
@@ -299,7 +335,7 @@ mod tests {
         {
             let view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
-            let mut configuration = PatternMatchingAutomataConfiguration::new(s1, view);
+            let mut configuration = PatternMatchingAutomataConfiguration::new(s1, view, vec![0, 1]);
             configuration.input_advance(0, 1);
             assert!(successors.contains(&configuration));
         }
@@ -307,7 +343,7 @@ mod tests {
         {
             let view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
-            let mut configuration = PatternMatchingAutomataConfiguration::new(s1, view);
+            let mut configuration = PatternMatchingAutomataConfiguration::new(s1, view, vec![0, 1]);
             configuration.input_advance(1, 1);
             assert!(successors.contains(&configuration));
         }
@@ -317,7 +353,7 @@ mod tests {
     fn test_automata_runner() {
         let state_arena = Arena::new();
         let transition_arena = Arena::new();
-        let mut automata = Automata::new(&state_arena, &transition_arena);
+        let mut automata = Automata::new(&state_arena, &transition_arena, 2);
 
         let s1 = automata.add_state(true, false);
         let s12 = automata.add_state(false, false);
@@ -337,8 +373,9 @@ mod tests {
         sequences[1].append("b".to_string());
         sequences[0].append("c".to_string());
         sequences[1].append("d".to_string());
+        let as_readable_view = sequences.iter().map(|s| s.readable_view()).collect();
 
-        let mut runner = PatternMatchingAutomataRunner::new(&automata);
+        let mut runner = PatternMatchingAutomataRunner::new(&automata, as_readable_view);
         runner.insert_from_initial_states(sequences.iter().map(|s| s.readable_view()).collect());
         runner.consume();
 
@@ -347,30 +384,33 @@ mod tests {
         assert_eq!(successors.len(), 10);
 
         // No transition
-        assert!(successors.contains(&PatternMatchingAutomataConfiguration::new(
-            s1,
-            sequences.iter().map(|s| s.readable_view()).collect()
-        )));
+        assert!(
+            successors.contains(&PatternMatchingAutomataConfiguration::new(
+                s1,
+                sequences.iter().map(|s| s.readable_view()).collect(),
+                vec![0, 1],
+            ))
+        );
 
         // Self loops
         {
             let view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
-            let mut config = PatternMatchingAutomataConfiguration::new(s1, view);
+            let mut config = PatternMatchingAutomataConfiguration::new(s1, view, vec![0, 1]);
             config.input_advance(0, 1);
             assert!(successors.contains(&config));
         }
         {
             let view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
-            let mut config = PatternMatchingAutomataConfiguration::new(s1, view);
+            let mut config = PatternMatchingAutomataConfiguration::new(s1, view, vec![0, 1]);
             config.input_advance(1, 1);
             assert!(successors.contains(&config));
         }
         {
             let view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
-            let mut config = PatternMatchingAutomataConfiguration::new(s1, view);
+            let mut config = PatternMatchingAutomataConfiguration::new(s1, view, vec![0, 1]);
             config.input_advance(0, 1);
             config.input_advance(1, 1);
             assert!(successors.contains(&config));
@@ -380,16 +420,16 @@ mod tests {
         {
             let view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
-            let mut config = PatternMatchingAutomataConfiguration::new(s12, view);
+            let mut config = PatternMatchingAutomataConfiguration::new(s12, view, vec![0, 1]);
             config.input_advance(0, 1);
             assert!(successors.contains(&config));
         }
 
-        // Moves to s12 after consuming the first element of the second dimention with a self-loop
+        // Moves to s12 after consuming the first element of the second dimension with a self-loop
         {
             let view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
-            let mut config = PatternMatchingAutomataConfiguration::new(s12, view);
+            let mut config = PatternMatchingAutomataConfiguration::new(s12, view, vec![0, 1]);
             config.input_advance(0, 1);
             config.input_advance(1, 1);
             assert!(successors.contains(&config));
@@ -399,7 +439,7 @@ mod tests {
         {
             let view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
-            let mut config = PatternMatchingAutomataConfiguration::new(s2, view);
+            let mut config = PatternMatchingAutomataConfiguration::new(s2, view, vec![0, 1]);
             config.input_advance(0, 1);
             config.input_advance(1, 1);
             assert!(successors.contains(&config));
@@ -409,7 +449,7 @@ mod tests {
         {
             let view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
-            let mut config = PatternMatchingAutomataConfiguration::new(s13, view);
+            let mut config = PatternMatchingAutomataConfiguration::new(s13, view, vec![0, 1]);
             config.input_advance(0, 2);
             assert!(successors.contains(&config));
         }
@@ -418,7 +458,7 @@ mod tests {
         {
             let view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
-            let mut config = PatternMatchingAutomataConfiguration::new(s13, view);
+            let mut config = PatternMatchingAutomataConfiguration::new(s13, view, vec![0, 1]);
             config.input_advance(0, 2);
             config.input_advance(1, 1);
             assert!(successors.contains(&config));
@@ -428,7 +468,7 @@ mod tests {
         {
             let view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
-            let mut config = PatternMatchingAutomataConfiguration::new(s3, view);
+            let mut config = PatternMatchingAutomataConfiguration::new(s3, view, vec![0, 1]);
             config.input_advance(0, 2);
             config.input_advance(1, 2);
             assert!(successors.contains(&config));

@@ -66,15 +66,22 @@ pub struct Automata<'a> {
     pub transitions: &'a Arena<Transition<'a>>,
     /// The initial states.
     pub initial_states: Vec<&'a State<'a>>,
+    /// The number of variables.
+    pub dimensions: usize,
 }
 
 impl<'a> Automata<'a> {
     /// Creates a new automaton.
-    pub fn new(states: &'a Arena<State<'a>>, transitions: &'a Arena<Transition<'a>>) -> Self {
+    pub fn new(
+        states: &'a Arena<State<'a>>,
+        transitions: &'a Arena<Transition<'a>>,
+        dimension: usize,
+    ) -> Self {
         Self {
             states,
             transitions,
             initial_states: Vec::new(),
+            dimensions: dimension,
         }
     }
 
@@ -102,6 +109,9 @@ impl<'a> Automata<'a> {
         var: usize,
         to: &'a State<'a>,
     ) -> &'a Transition<'a> {
+        if var >= self.dimensions {
+            panic!("Variable index out of bounds");
+        }
         let transition = self.transitions.alloc(Transition {
             action,
             var,
@@ -308,7 +318,7 @@ mod tests {
     fn test_add_state() {
         let state_arena = Arena::new();
         let trans_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &trans_arena);
+        let mut automaton = Automata::new(&state_arena, &trans_arena, 1);
 
         let current_state = automaton.add_state(true, false);
         assert_eq!(automaton.initial_states.len(), 1);
@@ -321,7 +331,7 @@ mod tests {
     fn test_add_transition() {
         let state_arena = Arena::new();
         let trans_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &trans_arena);
+        let mut automaton = Automata::new(&state_arena, &trans_arena, 1);
 
         let s1 = automaton.add_state(true, false);
         let s2 = automaton.add_state(false, true);
@@ -342,7 +352,7 @@ mod tests {
     fn test_shortest_accepted_word_length() {
         let state_arena = Arena::new();
         let trans_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &trans_arena);
+        let mut automaton = Automata::new(&state_arena, &trans_arena, 2);
 
         let s1 = automaton.add_state(true, false);
         let s12 = automaton.add_state(false, false);
@@ -363,7 +373,7 @@ mod tests {
     fn test_accepted_prefixes() {
         let state_arena = Arena::new();
         let trans_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &trans_arena);
+        let mut automaton = Automata::new(&state_arena, &trans_arena, 2);
 
         let s1 = automaton.add_state(true, false);
         let s12 = automaton.add_state(false, false);
@@ -396,7 +406,7 @@ mod tests {
     fn test_remove_unreachable_transitions() {
         let state_arena = Arena::new();
         let trans_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &trans_arena);
+        let mut automaton = Automata::new(&state_arena, &trans_arena, 3);
 
         let s1 = automaton.add_state(true, false);
         let s2 = automaton.add_state(false, false);

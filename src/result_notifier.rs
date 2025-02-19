@@ -15,14 +15,29 @@ impl MatchingInterval {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MatchingResult {
+    pub intervals: Vec<MatchingInterval>,
+    pub ids: Vec<usize>,
+}
+
+impl MatchingResult {
+    pub fn new(intervals: Vec<MatchingInterval>, ids: Vec<usize>) -> Self {
+        if intervals.len() != ids.len() {
+            panic!("intervals and ids must have the same length");
+        }
+        Self { intervals, ids }
+    }
+}
+
 /// A trait representing a way to notify or record matching results.
 ///
-/// Each result is a sequence of `MatchingInterval` values interpreted as `(start, end)` pairs.
-/// For example, if `result = [[1, 2], [3, 4]]`, that represents two matches:
+/// Each intervals is a sequence of `MatchingInterval` values interpreted as `(start, end)` pairs.
+/// For example, if `intervals = [[1, 2], [3, 4]]`, that represents two matches:
 /// (1, 2) and (3, 4).
 pub trait ResultNotifier {
-    /// Notifies a result, represented as a slice of `MatchingInterval` pairs.
-    fn notify(&mut self, result: &[MatchingInterval]);
+    /// Notifies a intervals, represented as a slice of `MatchingInterval` pairs.
+    fn notify(&mut self, intervals: &[MatchingInterval], ids: &[usize]);
 }
 
 /// A `ResultNotifier` implementation that prints matched ranges to `stdout`.
@@ -36,13 +51,16 @@ pub trait ResultNotifier {
 pub struct StdoutResultNotifier;
 
 impl ResultNotifier for StdoutResultNotifier {
-    fn notify(&mut self, result: &[MatchingInterval]) {
+    fn notify(&mut self, intervals: &[MatchingInterval], ids: &[usize]) {
         // Build a single string containing all pairs, then print once.
         // This approach is efficient in a single-threaded context.
         let mut output = String::new();
-        for i in 0..result.len() {
-            output.push_str(&format!("({}, {})", result[i].start, result[i].end));
-            if i + 1 < result.len() {
+        for i in 0..intervals.len() {
+            output.push_str(&format!(
+                "({}: {}, {})",
+                ids[i], intervals[i].start, intervals[i].end
+            ));
+            if i + 1 < intervals.len() {
                 output.push_str(", ");
             }
         }
@@ -57,20 +75,23 @@ impl ResultNotifier for StdoutResultNotifier {
 /// - `SharedBufferSource<Vec<MatchingInterval>>` is the source/sink type for the buffer.
 ///
 pub struct SharedBufferResultNotifier {
-    buffer: SharedBufferSource<Vec<MatchingInterval>>,
+    buffer: SharedBufferSource<MatchingResult>,
 }
 
 impl SharedBufferResultNotifier {
     /// Creates a new `SharedBufferResultNotifier` from a `SharedBufferSource`.
-    pub fn new(buffer: SharedBufferSource<Vec<MatchingInterval>>) -> Self {
+    pub fn new(buffer: SharedBufferSource<MatchingResult>) -> Self {
         Self { buffer }
     }
 }
 
 impl ResultNotifier for SharedBufferResultNotifier {
-    fn notify(&mut self, result: &[MatchingInterval]) {
+    fn notify(&mut self, intervals: &[MatchingInterval], ids: &[usize]) {
         // We clone because we need to store these values beyond the scope of this call.
-        self.buffer.push(result.to_vec());
+        self.buffer.push(MatchingResult {
+            intervals: intervals.to_vec(),
+            ids: ids.to_vec(),
+        });
     }
 }
 
@@ -99,12 +120,15 @@ impl FileResultNotifier {
 }
 
 impl ResultNotifier for FileResultNotifier {
-    fn notify(&mut self, result: &[MatchingInterval]) {
+    fn notify(&mut self, intervals: &[MatchingInterval], ids: &[usize]) {
         // Build a single line, then write it at once.
         let mut line = String::new();
-        for i in 0..result.len() {
-            line.push_str(&format!("({}, {})", result[i].start, result[i].end));
-            if i + 1 < result.len() {
+        for i in 0..intervals.len() {
+            line.push_str(&format!(
+                "{}: ({}, {})",
+                ids[i], intervals[i].start, intervals[i].end
+            ));
+            if i + 1 < intervals.len() {
                 line.push_str(", ");
             }
         }
@@ -123,7 +147,10 @@ mod tests {
     fn test_stdout_result_notifier() {
         // Hard to test stdout automatically, but we can call it to ensure no panics.
         let mut notifier = StdoutResultNotifier;
-        notifier.notify(&[MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)]);
+        notifier.notify(
+            &[MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)],
+            &[0, 1],
+        );
         // Manually check the console output if needed.
     }
 
@@ -132,10 +159,13 @@ mod tests {
         let temp_file = NamedTempFile::new()?;
         {
             let mut notifier = FileResultNotifier::new(temp_file.path().to_str().unwrap())?;
-            notifier.notify(&[MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)]);
+            notifier.notify(
+                &[MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)],
+                &[0, 1],
+            );
         }
         let content = std::fs::read_to_string(temp_file.path())?;
-        assert_eq!(content.trim(), "(1, 2), (3, 4)");
+        assert_eq!(content.trim(), "0: (1, 2), 1: (3, 4)");
         Ok(())
     }
 
@@ -144,14 +174,21 @@ mod tests {
         let buffer = SharedBuffer::new();
         let source = buffer.make_source();
         let mut notifier = SharedBufferResultNotifier::new(source);
-        notifier.notify(&[MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)]);
+        notifier.notify(
+            &[MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)],
+            &[0, 1],
+        );
 
         let mut sink = buffer.make_sink();
         let result = sink.pop().expect("No data in shared buffer");
-        assert_eq!(result.len(), 2);
+        assert_eq!(result.intervals.len(), 2);
+        assert_eq!(result.ids.len(), 2);
         assert_eq!(
             result,
-            vec![MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)]
+            MatchingResult {
+                intervals: vec![MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)],
+                ids: vec![0, 1]
+            }
         );
     }
 }

@@ -1,6 +1,5 @@
 use crate::hyper_pattern_matching::HyperPatternMatching;
 use crate::multi_stream_reader::MultiStreamReader;
-use crate::result_notifier::MatchingInterval;
 
 /// A scheduler that continuously reads from multiple input streams and feeds lines into a
 /// [`HyperPatternMatching`] implementation.
@@ -9,7 +8,7 @@ use crate::result_notifier::MatchingInterval;
 ///
 /// * `Matching` - A type that implements the [`HyperPatternMatching`] trait.
 ///   This specifies the algorithm for hyper pattern matching.
-struct ReadingScheduler<Matching: HyperPatternMatching> {
+pub struct ReadingScheduler<Matching: HyperPatternMatching> {
     matching: Matching,
     reader: MultiStreamReader,
 }
@@ -58,9 +57,14 @@ impl<Matching: HyperPatternMatching> ReadingScheduler<Matching> {
                         let availability = self.reader.is_available(i);
                         done[i] = availability.is_err() || availability.is_ok_and(|f| !f);
                     }
+                    if done[i] {
+                        self.matching.set_eof(i);
+                    }
                 }
             }
         }
+
+        self.matching.consume_remaining();
     }
 }
 
@@ -69,9 +73,9 @@ mod tests {
     use super::*;
     use crate::automata::Automata;
     use crate::automata_runner::AppendOnlySequence;
-    use crate::hyper_pattern_matching::NaiveHyperPatternMatching;
+    use crate::hyper_pattern_matching::OnlineHyperPatternMatching;
     use crate::multi_stream_reader::StreamSource;
-    use crate::result_notifier::SharedBufferResultNotifier;
+    use crate::result_notifier::{SharedBufferResultNotifier, MatchingResult, MatchingInterval};
     use crate::shared_buffer::{SharedBuffer, SharedBufferSource};
     use std::collections::HashSet;
     use typed_arena::Arena;
@@ -80,7 +84,7 @@ mod tests {
     fn test_run() {
         let state_arena = Arena::new();
         let transition_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &transition_arena);
+        let mut automaton = Automata::new(&state_arena, &transition_arena, 2);
 
         let s1 = automaton.add_state(true, false);
         let s12 = automaton.add_state(false, false);
@@ -110,7 +114,7 @@ mod tests {
         let notifier = SharedBufferResultNotifier::new(result_buffer.make_source());
         let mut result_sink = result_buffer.make_sink();
 
-        let matching = NaiveHyperPatternMatching::<SharedBufferResultNotifier>::new(
+        let matching = OnlineHyperPatternMatching::<SharedBufferResultNotifier>::new(
             &automaton,
             notifier,
             vec![AppendOnlySequence::new(), AppendOnlySequence::new()],
@@ -136,29 +140,47 @@ mod tests {
         }
 
         assert_eq!(results.len(), 6);
-        assert!(results.contains(&vec![
-            MatchingInterval::new(0, 2),
-            MatchingInterval::new(1, 1)
-        ]));
-        assert!(results.contains(&vec![
-            MatchingInterval::new(1, 2),
-            MatchingInterval::new(1, 1)
-        ]));
-        assert!(results.contains(&vec![
-            MatchingInterval::new(2, 2),
-            MatchingInterval::new(1, 1)
-        ]));
-        assert!(results.contains(&vec![
-            MatchingInterval::new(0, 2),
-            MatchingInterval::new(2, 2)
-        ]));
-        assert!(results.contains(&vec![
-            MatchingInterval::new(1, 2),
-            MatchingInterval::new(2, 2)
-        ]));
-        assert!(results.contains(&vec![
-            MatchingInterval::new(2, 2),
-            MatchingInterval::new(2, 2)
-        ]));
+        assert!(results.contains(
+            &MatchingResult {
+                intervals: vec![
+                    MatchingInterval::new(0, 2),
+                    MatchingInterval::new(1, 1)
+                ],
+                ids: vec![0, 1]}));
+        assert!(results.contains(
+            &MatchingResult {
+                intervals: vec![
+                    MatchingInterval::new(1, 2),
+                    MatchingInterval::new(1, 1)
+                ],
+                ids: vec![0, 1]}));
+        assert!(results.contains(
+            &MatchingResult {
+                intervals: vec![
+                    MatchingInterval::new(2, 2),
+                    MatchingInterval::new(1, 1)
+                ],
+                ids: vec![0, 1]}));
+        assert!(results.contains(
+            &MatchingResult {
+                intervals: vec![
+                    MatchingInterval::new(0, 2),
+                    MatchingInterval::new(2, 2)
+                ],
+                ids: vec![0, 1]}));
+        assert!(results.contains(
+            &MatchingResult {
+                intervals: vec![
+                    MatchingInterval::new(1, 2),
+                    MatchingInterval::new(2, 2)
+                ],
+                ids: vec![0, 1]}));
+        assert!(results.contains(
+            &MatchingResult {
+                intervals: vec![
+                    MatchingInterval::new(2, 2),
+                    MatchingInterval::new(2, 2)
+                ],
+                ids: vec![0, 1]}));
     }
 }

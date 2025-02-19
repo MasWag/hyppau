@@ -379,6 +379,11 @@ impl<T> ReadableView<T> {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Returns `true` if this view shares the same underlying data as another
+    pub fn same_data(&self, other: &ReadableView<T>) -> bool {
+        self.data.as_ptr() as *const _ == other.data.as_ptr() as *const _
+    }
 }
 
 impl<T> Clone for ReadableView<T> {
@@ -459,7 +464,7 @@ mod tests {
     fn test_automata_configuration_successors() {
         let state_arena = Arena::new();
         let transition_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &transition_arena);
+        let mut automaton = Automata::new(&state_arena, &transition_arena, 2);
 
         let s1 = automaton.add_state(true, false);
         let s12 = automaton.add_state(false, false);
@@ -516,7 +521,7 @@ mod tests {
     fn test_automata_runner() {
         let state_arena = Arena::new();
         let transition_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &transition_arena);
+        let mut automaton = Automata::new(&state_arena, &transition_arena, 2);
 
         let s1 = automaton.add_state(true, false);
         let s12 = automaton.add_state(false, false);
