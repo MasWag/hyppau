@@ -6,14 +6,14 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-/// A trait defining the behavior of an automata runner, which tracks and expands
+/// A trait defining the behavior of an automaton runner, which tracks and expands
 /// sets of configurations over time.
 ///
 /// This trait is generic over:
 /// - `'a`: the lifetime of the automaton and its states/transitions.
 /// - `C`: the type of `AutomataConfiguration` that represents a single state of
 ///   the automaton and the positions in the input(s).
-pub trait AutomataRunner<'a, C: AutomataConfiguration<'a>> {
+pub trait AutomataRunner<'a, C: AutomataConfiguration<'a> + std::cmp::Eq + std::hash::Hash> {
     /// Inserts a single new configuration into the runner's internal set.
     ///
     /// # Arguments
@@ -137,7 +137,7 @@ impl<'a> AutomataRunner<'a, SimpleAutomataConfiguration<'a>> for SimpleAutomataR
 /// # Lifetime Parameters
 /// * `'a`: lifetime that ties this configuration to the automaton’s states and transitions.
 pub trait AutomataConfiguration<'a> {
-    /// Returns the number of tracks in the automaton.
+    /// Returns the number of variables in the automaton.
     fn dimensions(&self) -> usize;
 
     /// Returns a shared reference to the list of outgoing transitions from
@@ -177,38 +177,28 @@ pub trait AutomataConfiguration<'a> {
     fn successors(&self) -> Vec<Self>
     where
         Self: Sized,
+        Self: Eq + Hash,
     {
-        let mut successors = Vec::new();
+        let mut successors_set = HashSet::new();
         for transition in self.transitions().iter() {
-            assert_eq!(
-                self.dimensions(),
-                transition.action.len(),
-                "Action length mismatch"
+            // Ensure transition.var is within bounds.
+            assert!(
+                transition.var < self.dimensions(),
+                "Transition variable out of bounds"
             );
-            // Make the tentative successor
+            // Create a tentative successor configuration.
             let mut successor = self.duplicate(transition.next_state);
-            // Check if the transition is available
-            let mut is_valid = true;
-            for i in 0..transition.action.len() {
-                let head = self.input_head(i);
-                if transition.action[i] != ""
-                    && (head.is_none() || transition.action[i] != head.unwrap())
-                {
-                    // If the action says "consume symbol X" but the head is absent
-                    // or different, this transition is invalid.
-                    is_valid = false;
-                    break;
-                } else if transition.action[i] != "" {
-                    // Consume the input sequence.
-                    successor.input_advance(i, 1);
-                }
+            // Check if the transition is applicable.
+            let head = self.input_head(transition.var);
+            if head.is_none() || transition.action != head.unwrap() {
+                continue;
             }
-
-            if is_valid {
-                successors.push(successor);
-            }
+            // Consume one symbol on the input for the given dimension.
+            successor.input_advance(transition.var, 1);
+            // Insert into the HashSet for deduplication.
+            successors_set.insert(successor);
         }
-        successors
+        successors_set.into_iter().collect()
     }
 }
 
@@ -469,17 +459,20 @@ mod tests {
     fn test_automata_configuration_successors() {
         let state_arena = Arena::new();
         let transition_arena = Arena::new();
-        let mut automata = Automata::new(&state_arena, &transition_arena);
+        let mut automaton = Automata::new(&state_arena, &transition_arena);
 
-        let s1 = automata.add_state(true, false);
-        let s2 = automata.add_state(false, false);
-        let s3 = automata.add_state(false, true);
+        let s1 = automaton.add_state(true, false);
+        let s12 = automaton.add_state(false, false);
+        let s2 = automaton.add_state(false, false);
+        let s13 = automaton.add_state(false, false);
+        let s3 = automaton.add_state(false, true);
 
-        automata.add_transition(s1, vec!["a".to_string(), "b".to_string()], s2);
-        automata.add_transition(s1, vec!["a".to_string(), "".to_string()], s1);
-        automata.add_transition(s1, vec!["".to_string(), "b".to_string()], s1);
-        automata.add_transition(s1, vec!["".to_string(), "".to_string()], s1);
-        automata.add_transition(s1, vec!["c".to_string(), "d".to_string()], s3);
+        automaton.add_transition(s1, "a".to_string(), 0, s12);
+        automaton.add_transition(s12, "b".to_string(), 1, s2);
+        automaton.add_transition(s1, "a".to_string(), 0, s1);
+        automaton.add_transition(s1, "b".to_string(), 1, s1);
+        automaton.add_transition(s1, "c".to_string(), 0, s13);
+        automaton.add_transition(s13, "d".to_string(), 1, s3);
 
         let mut sequences = vec![AppendOnlySequence::new(), AppendOnlySequence::new()];
         sequences[0].append("a".to_string());
@@ -494,53 +487,49 @@ mod tests {
 
         let successors = config.successors();
 
-        assert_eq!(successors.len(), 4);
+        assert_eq!(successors.len(), 3);
 
-        assert_eq!(successors[0].current_state, s2);
-        assert_eq!(successors[1].current_state, s1);
-        assert_eq!(successors[2].current_state, s1);
-        assert_eq!(successors[3].current_state, s1);
-
-        assert_eq!(*successors[0].input_sequence[0].readable_slice(), ["c"]);
-        assert_eq!(*successors[0].input_sequence[1].readable_slice(), ["d"]);
-
-        assert_eq!(*successors[1].input_sequence[0].readable_slice(), ["c"]);
-        assert_eq!(
-            *successors[1].input_sequence[1].readable_slice(),
-            ["b", "d"]
-        );
-
-        assert_eq!(
-            *successors[2].input_sequence[0].readable_slice(),
-            ["a", "c"]
-        );
-        assert_eq!(*successors[2].input_sequence[1].readable_slice(), ["d"]);
-
-        assert_eq!(
-            *successors[3].input_sequence[0].readable_slice(),
-            ["a", "c"]
-        );
-        assert_eq!(
-            *successors[3].input_sequence[1].readable_slice(),
-            ["b", "d"]
-        );
+        // Moves to s12 using (a, 0)
+        {
+            let mut view: Vec<ReadableView<String>> =
+                sequences.iter().map(|s| s.readable_view()).collect();
+            view[0].advance_readable(1);
+            assert!(successors.contains(&SimpleAutomataConfiguration::new(s12, view)));
+        }
+        // Moves to s1 using (a, 0)
+        {
+            let mut view: Vec<ReadableView<String>> =
+                sequences.iter().map(|s| s.readable_view()).collect();
+            view[0].advance_readable(1);
+            assert!(successors.contains(&SimpleAutomataConfiguration::new(s1, view)));
+        }
+        // Moves to s1 using (b, 1)
+        {
+            let mut view: Vec<ReadableView<String>> =
+                sequences.iter().map(|s| s.readable_view()).collect();
+            view[1].advance_readable(1);
+            assert!(successors.contains(&SimpleAutomataConfiguration::new(s1, view)));
+        }
     }
 
     #[test]
     fn test_automata_runner() {
         let state_arena = Arena::new();
         let transition_arena = Arena::new();
-        let mut automata = Automata::new(&state_arena, &transition_arena);
+        let mut automaton = Automata::new(&state_arena, &transition_arena);
 
-        let s1 = automata.add_state(true, false);
-        let s2 = automata.add_state(false, false);
-        let s3 = automata.add_state(false, true);
+        let s1 = automaton.add_state(true, false);
+        let s12 = automaton.add_state(false, false);
+        let s2 = automaton.add_state(false, false);
+        let s13 = automaton.add_state(false, false);
+        let s3 = automaton.add_state(false, true);
 
-        automata.add_transition(s1, vec!["a".to_string(), "b".to_string()], s2);
-        automata.add_transition(s1, vec!["a".to_string(), "".to_string()], s1);
-        automata.add_transition(s1, vec!["".to_string(), "b".to_string()], s1);
-        automata.add_transition(s1, vec!["".to_string(), "".to_string()], s1);
-        automata.add_transition(s1, vec!["c".to_string(), "d".to_string()], s3);
+        automaton.add_transition(s1, "a".to_string(), 0, s12);
+        automaton.add_transition(s12, "b".to_string(), 1, s2);
+        automaton.add_transition(s1, "a".to_string(), 0, s1);
+        automaton.add_transition(s1, "b".to_string(), 1, s1);
+        automaton.add_transition(s1, "c".to_string(), 0, s13);
+        automaton.add_transition(s13, "d".to_string(), 1, s3);
 
         let mut sequences = vec![AppendOnlySequence::new(), AppendOnlySequence::new()];
         sequences[0].append("a".to_string());
@@ -549,14 +538,14 @@ mod tests {
         sequences[1].append("d".to_string());
 
         let mut runner = SimpleAutomataRunner::new(
-            &automata,
+            &automaton,
             sequences.iter().map(|s| s.readable_view()).collect(),
         );
         runner.consume();
 
         let successors = runner.current_configurations;
 
-        assert_eq!(successors.len(), 6);
+        assert_eq!(successors.len(), 10);
 
         // No transition
         assert!(successors.contains(&SimpleAutomataConfiguration::new(
@@ -585,7 +574,24 @@ mod tests {
             assert!(successors.contains(&SimpleAutomataConfiguration::new(s1, view)));
         }
 
-        // Directly moves to s2
+        // Moves to s12
+        {
+            let mut view: Vec<ReadableView<String>> =
+                sequences.iter().map(|s| s.readable_view()).collect();
+            view[0].advance_readable(1);
+            assert!(successors.contains(&SimpleAutomataConfiguration::new(s12, view)));
+        }
+
+        // Moves to s12 after consuming the first element of the second dimention with a self-loop
+        {
+            let mut view: Vec<ReadableView<String>> =
+                sequences.iter().map(|s| s.readable_view()).collect();
+            view[0].advance_readable(1);
+            view[1].advance_readable(1);
+            assert!(successors.contains(&SimpleAutomataConfiguration::new(s12, view)));
+        }
+
+        // Moves to s2 via s12
         {
             let mut view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();
@@ -594,7 +600,24 @@ mod tests {
             assert!(successors.contains(&SimpleAutomataConfiguration::new(s2, view)));
         }
 
-        // Moves to s3 after consuming the first elements with the self loops
+        // Moves to s13 after consuming the first element of the first dimension with the self loops
+        {
+            let mut view: Vec<ReadableView<String>> =
+                sequences.iter().map(|s| s.readable_view()).collect();
+            view[0].advance_readable(2);
+            assert!(successors.contains(&SimpleAutomataConfiguration::new(s13, view)));
+        }
+
+        // Moves to s13 after consuming the first elements with the self loops
+        {
+            let mut view: Vec<ReadableView<String>> =
+                sequences.iter().map(|s| s.readable_view()).collect();
+            view[0].advance_readable(2);
+            view[1].advance_readable(1);
+            assert!(successors.contains(&SimpleAutomataConfiguration::new(s13, view)));
+        }
+
+        // Moves to s3 via s13 after consuming the first elements with the self loops
         {
             let mut view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();

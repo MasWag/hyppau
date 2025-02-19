@@ -83,14 +83,17 @@ mod tests {
         let mut automaton = Automata::new(&state_arena, &transition_arena);
 
         let s1 = automaton.add_state(true, false);
+        let s12 = automaton.add_state(false, false);
         let s2 = automaton.add_state(false, false);
+        let s13 = automaton.add_state(false, false);
         let s3 = automaton.add_state(false, true);
 
-        automaton.add_transition(s1, vec!["a".to_string(), "b".to_string()], s2);
-        automaton.add_transition(s1, vec!["a".to_string(), "".to_string()], s1);
-        automaton.add_transition(s1, vec!["".to_string(), "b".to_string()], s1);
-        automaton.add_transition(s1, vec!["".to_string(), "".to_string()], s1);
-        automaton.add_transition(s1, vec!["c".to_string(), "d".to_string()], s3);
+        automaton.add_transition(s1, "a".to_string(), 0, s12);
+        automaton.add_transition(s12, "b".to_string(), 1, s2);
+        automaton.add_transition(s1, "a".to_string(), 0, s1);
+        automaton.add_transition(s1, "b".to_string(), 1, s1);
+        automaton.add_transition(s1, "c".to_string(), 0, s13);
+        automaton.add_transition(s13, "d".to_string(), 1, s3);
 
         let input_buffers = vec![SharedBuffer::new(), SharedBuffer::new()];
         let input_buffers_source: Vec<SharedBufferSource<&str>> =
