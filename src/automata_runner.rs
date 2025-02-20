@@ -441,7 +441,7 @@ mod tests {
 
         seq.clear();
         let view3 = seq.readable_view();
-        assert_eq!(&*view3.readable_slice(), &[]);
+        assert_eq!(&*view3.readable_slice(), &[] as &[i32]);
     }
 
     #[test]

@@ -277,7 +277,7 @@ impl<'a, Notifier: ResultNotifier> HyperPatternMatching
     fn consume_remaining(&mut self) {
     }
 
-    fn set_eof(&mut self, track: usize) {        
+    fn set_eof(&mut self, _track: usize) {
     }
 }
 
