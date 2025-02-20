@@ -85,6 +85,10 @@ impl<'a> AutomataRunner<'a, PatternMatchingAutomataConfiguration<'a>>
     /// Inserts new configurations for each initial state of the given automaton,
     /// using the provided `input_sequence`.
     fn insert_from_initial_states(&mut self, input_sequence: Vec<ReadableView<String>>) {
+        if self.automaton.dimensions != input_sequence.len() {
+            panic!("Input sequence dimensions do not match automaton dimensions: expected {}, got {}",
+                   self.automaton.dimensions, input_sequence.len());
+        }
         let mut ids = vec![];
         for sequence in &input_sequence {
             for i in 0..self.views.len() {

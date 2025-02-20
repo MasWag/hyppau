@@ -1,0 +1,18 @@
+{
+  "dimensions": 2,
+  "states": [
+    { "id": 0, "is_initial": true, "is_final": false },
+    { "id": 1, "is_initial": false, "is_final": false },
+    { "id": 2, "is_initial": false, "is_final": false },
+    { "id": 3, "is_initial": false, "is_final": false },
+    { "id": 4, "is_initial": false, "is_final": true }
+  ],
+  "transitions": [
+    { "from": 0, "to": 1, "action": "a", "var": 0 },
+    { "from": 1, "to": 2, "action": "b", "var": 1 },
+    { "from": 0, "to": 0, "action": "a", "var": 0 },
+    { "from": 0, "to": 0, "action": "b", "var": 1 },
+    { "from": 0, "to": 3, "action": "c", "var": 0 },
+    { "from": 3, "to": 4, "action": "d", "var": 1 }
+  ]
+}

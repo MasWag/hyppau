@@ -1,3 +1,72 @@
+use clap::{Parser, ValueEnum};
+use env_logger::Env;
+use log::{debug, error, info, trace};
+use std::fs::File;
+use std::io::{BufReader, Read};
+use typed_arena::Arena;
+
+use crate::automata_runner::AppendOnlySequence;
+use crate::multi_stream_reader::{MultiStreamReader, StreamSource};
+use crate::result_notifier::{FileResultNotifier, ResultNotifier, StdoutResultNotifier, MatchingInterval};
+use crate::serialization::{automaton_to_dot, deserialize_nfa};
+
+enum ResultNotifierType {
+    Stdout(StdoutResultNotifier),
+    File(FileResultNotifier),
+}
+
+impl ResultNotifier for ResultNotifierType {
+    fn notify(&mut self, intervals: &[MatchingInterval], ids: &[usize]) {
+        match self {
+            ResultNotifierType::Stdout(notifier) => notifier.notify(intervals, ids),
+            ResultNotifierType::File(notifier) => notifier.notify(intervals, ids),
+        }
+    }
+}
+
+use crate::naive_hyper_pattern_matching::NaiveHyperPatternMatching;
+use crate::reading_scheduler::ReadingScheduler;
+use crate::hyper_pattern_matching::OnlineHyperPatternMatching;
+
+#[derive(Clone, Debug, ValueEnum)]
+enum Mode {
+    Naive,
+    Online,
+}
+
+/// A prototype tool for Hyper Pattern Matching
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Read an automaton written in JSON format from FILE.
+    #[arg(short = 'f', long = "automaton", value_name = "FILE")]
+    automaton: String,
+
+    /// Read the log from FILE (can be used multiple times).
+    #[arg(short = 'i', long = "input", value_name = "FILE")]
+    input: Vec<String>,
+
+    /// Quiet mode. Causes any results to be suppressed.
+    #[arg(short = 'q', long = "quiet")]
+    quiet: bool,
+
+    /// Print the automaton in Graphviz DOT format.
+    #[arg(short = 'g', long = "graphviz")]
+    graphviz: bool,
+
+    /// Write the output to FILE instead of stdout.
+    #[arg(short = 'o', long = "output", value_name = "FILE")]
+    output: Option<String>,
+
+    /// Verbose mode. Causes debug messages to be printed.
+    #[arg(short = 'v', long = "verbose")]
+    verbose: bool,
+
+    /// Choose the matching mode: naive or online (default: naive)
+    #[arg(short = 'm', long = "mode", value_enum, default_value_t = Mode::Naive)]
+    mode: Mode,
+}
+
 mod automata;
 mod automata_runner;
 mod hyper_pattern_matching;
@@ -5,9 +74,132 @@ mod multi_stream_reader;
 mod naive_hyper_pattern_matching;
 mod reading_scheduler;
 mod result_notifier;
-mod shared_buffer;
 mod serialization;
+mod shared_buffer;
 
 fn main() {
-    println!("Hello, world!");
+    // Parse the command-line arguments
+    let args = Args::parse();
+
+    // Set up the default log level based on the quiet flag unless overridden by RUST_LOG.
+    // If RUST_LOG is not set, this will default to "warn" when quiet is true. If verbose is set, it will default to "debug". Otherwise, it will default to "info".
+    let env = Env::default().filter_or(
+        "RUST_LOG",
+        if args.quiet {
+            "warn"
+        } else if args.verbose {
+            "debug"
+        } else {
+            "info"
+        },
+    );
+    env_logger::Builder::from_env(env).init();
+
+    // Log the parsed arguments for debugging
+    trace!("Parsed command-line arguments: {:?}", args);
+
+    // Log status messages
+    debug!("Automaton file: {}", args.automaton);
+    if !args.input.is_empty() {
+        debug!("Input file(s): {:?}", args.input);
+    }
+    debug!("Quiet mode: {}", args.quiet);
+    debug!("Graphviz output: {}", args.graphviz);
+    debug!("Matching mode: {:?}", args.mode);
+
+    // Read the automaton file
+    let mut file = match File::open(&args.automaton) {
+        Ok(file) => file,
+        Err(e) => {
+            error!("Failed to open automaton file: {}", e);
+            return;
+        }
+    };
+
+    let mut contents = String::new();
+    if let Err(e) = file.read_to_string(&mut contents) {
+        error!("Failed to read automaton file: {}", e);
+        return;
+    }
+
+    // Create arenas for states and transitions
+    let state_arena = Arena::new();
+    let trans_arena = Arena::new();
+
+    // Deserialize the JSON content into an automaton
+    let automaton = deserialize_nfa(&contents, &state_arena, &trans_arena);
+
+    // Print some information about the constructed automaton
+    debug!("Automaton constructed successfully");
+    debug!("Number of states: {}", automaton.states.len());
+    debug!(
+        "Number of initial states: {}",
+        automaton.initial_states.len()
+    );
+    debug!("Number of dimensions: {}", automaton.dimensions);
+
+    // If the --graphviz option is used, generate the automaton in DOT format
+    if args.graphviz {
+        let dot_output = automaton_to_dot(&automaton);
+
+        // If an output file is specified, write to the file; otherwise, print to stdout
+        if let Some(output_file) = args.output {
+            match std::fs::write(&output_file, dot_output) {
+                Ok(_) => info!("DOT output written to file: {}", output_file),
+                Err(e) => error!("Failed to write DOT output to file: {}", e),
+            }
+        } else {
+            println!("{}", dot_output);
+        }
+        return;
+    }
+    // If no input files are specified, print a message and return
+    if args.input.is_empty() {
+        info!("No input files specified; nothing to do");
+        return;
+    }
+
+    // Construct MultiStreamReader from the input files
+    debug!("Construct MultiStreamReader from input files: {:?}", args.input);
+    let multi_stream_reader = MultiStreamReader::new(
+        args.input
+            .iter()
+            .map(|path| {
+                let file = std::fs::File::open(path).unwrap();
+                Box::new(BufReader::new(file)) as Box<dyn StreamSource>
+            })
+            .collect(),
+    );
+
+    // Construct ResultNotifier
+    let result_notifier = if let Some(output_file) = args.output {
+        ResultNotifierType::File(FileResultNotifier::new(&output_file).unwrap())
+    } else {
+        ResultNotifierType::Stdout(StdoutResultNotifier)
+    };
+
+    // Construct HyperPatternMatching and ReadingScheduler depending on the mode argument
+    info!("Start hyper pattern matching with {:?} mode", args.mode);
+    match args.mode {
+        Mode::Naive => {
+            let hyper_pattern_matching = NaiveHyperPatternMatching::new(
+                &automaton,
+                result_notifier,
+                args.input.into_iter().map(|_| AppendOnlySequence::new()).collect(),
+            );
+            let mut reading_scheduler = ReadingScheduler::new(hyper_pattern_matching, multi_stream_reader);
+            reading_scheduler.run();
+        },
+        Mode::Online => {
+            let hyper_pattern_matching = OnlineHyperPatternMatching::new(
+                &automaton,
+                result_notifier,
+                args.input.into_iter().map(|_| AppendOnlySequence::new()).collect(),
+            );
+            let mut reading_scheduler = ReadingScheduler::new(hyper_pattern_matching, multi_stream_reader);
+            reading_scheduler.run();
+        },
+    }
+
+    info!("Hyper Pattern Matching completed successfully");
 }

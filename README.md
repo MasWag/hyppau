@@ -21,6 +21,8 @@ hyper-pattern-matching [OPTIONS] -f FILE [FILE...]
 - **-V**, **--version**: Print the version.
 - **-i** *file*, **--input** *file*: Read the log from the *file*. The i-th input file is labeled with `i` in the output.
 - **-f** *file*, **--automaton** *file*: Read an automaton written in JSON format from *file*.
+- **-g**, **--graphviz**: Print the automaton in Graphviz DOT format.
+- **-o** *file*, **--output** *file*: Write the output to *file* instead of stdout.
 
 Installation
 ------------

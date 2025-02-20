@@ -81,9 +81,10 @@ impl<'a, Notifier: ResultNotifier> NaiveHyperPatternMatching<'a, Notifier> {
         }
     }
 
-    pub fn in_range(&self, start_position: &StartPosition) -> bool {
-        for i in 0..self.sequences.len() {
-            if self.eof[i] && start_position.start_indices[i] >= self.read_size[i] {
+    pub fn in_range(&self, start_position: &StartPosition, ids: &[usize]) -> bool {
+        assert_eq!(start_position.start_indices.len(), ids.len());
+        for i in 0..start_position.start_indices.len() {
+            if self.eof[ids[i]] && start_position.start_indices[i] >= self.read_size[ids[i]] {
                 return false;
             }
         }
@@ -129,7 +130,7 @@ impl<'a, Notifier: ResultNotifier> HyperPatternMatching
                         .0
                         .immediate_successors()
                         .into_iter()
-                        .filter(|successor| self.in_range(successor))
+                        .filter(|successor| self.in_range(successor, &id))
                         .collect_vec();
                     // Put the successors to the waiting queue
                     for successor in valid_successors {
@@ -182,7 +183,7 @@ impl<'a, Notifier: ResultNotifier> HyperPatternMatching
                         .0
                         .immediate_successors()
                         .into_iter()
-                        .filter(|successor| self.in_range(successor))
+                        .filter(|successor| self.in_range(successor, &id))
                         .collect_vec();
                     // Put the successors to the waiting queue
                     for successor in valid_successors {

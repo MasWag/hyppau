@@ -184,7 +184,8 @@ pub trait AutomataConfiguration<'a> {
             // Ensure transition.var is within bounds.
             assert!(
                 transition.var < self.dimensions(),
-                "Transition variable out of bounds"
+                "Transition variable out of bounds: {}, expected < {}",
+                transition.var, self.dimensions()
             );
             // Create a tentative successor configuration.
             let mut successor = self.duplicate(transition.next_state);

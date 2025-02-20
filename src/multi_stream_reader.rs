@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 /// A trait representing a generic stream source.
 pub trait StreamSource: BufRead + Send {
+    #[allow(unused)]
     fn as_any(&self) -> &dyn std::any::Any;
 }
 

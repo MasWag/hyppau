@@ -75,7 +75,7 @@ pub fn serialize_nfa<'a>(automata: &Automata<'a>) -> String {
 
     // Build the vector of serialized transitions.
     let mut transitions_vec = Vec::new();
-    for (&ptr, &(state, id)) in &state_ids {
+    for (&_ptr, &(state, id)) in &state_ids {
         for t in state.transitions.borrow().iter() {
             let target_ptr = t.next_state as *const State;
             let target_id = state_ids
@@ -148,7 +148,7 @@ pub fn deserialize_nfa<'a>(
 /// Each state is assigned a unique identifier (based on a BFS from the initial states).
 /// Final states are drawn with a `doublecircle` shape, while non-final states use a `circle`.
 /// An invisible __start__ node points to all initial states.
-pub fn to_dot<'a>(automata: &Automata<'a>) -> String {
+pub fn automaton_to_dot<'a>(automata: &Automata<'a>) -> String {
     // Map each state's pointer to a unique id and store the state pointers.
     let mut state_ids: HashMap<*const State, usize> = HashMap::new();
     let mut id_to_state: Vec<&State> = Vec::new();

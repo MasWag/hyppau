@@ -23,6 +23,7 @@ pub struct MatchingResult {
 }
 
 impl MatchingResult {
+    #[allow(dead_code)]
     pub fn new(intervals: Vec<MatchingInterval>, ids: Vec<usize>) -> Self {
         if intervals.len() != ids.len() {
             panic!("intervals and ids must have the same length");
