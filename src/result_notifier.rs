@@ -2,7 +2,7 @@ use crate::shared_buffer::SharedBufferSource;
 use std::fs::File;
 use std::io::{self, Write};
 
-/// Represents a matching interval
+/// Represents a matching interval with a start and end position.
 #[derive(PartialEq, Eq, Debug, Hash, Clone)]
 pub struct MatchingInterval {
     pub start: usize,
@@ -15,6 +15,7 @@ impl MatchingInterval {
     }
 }
 
+/// Contains matching intervals along with their corresponding identifiers.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MatchingResult {
     pub intervals: Vec<MatchingInterval>,
@@ -30,29 +31,40 @@ impl MatchingResult {
     }
 }
 
-/// A trait representing a way to notify or record matching results.
+/// A trait for notifying or recording matching results.
 ///
-/// Each intervals is a sequence of `MatchingInterval` values interpreted as `(start, end)` pairs.
-/// For example, if `intervals = [[1, 2], [3, 4]]`, that represents two matches:
-/// (1, 2) and (3, 4).
+/// The matching intervals are provided as slices, where each interval corresponds to an identifier in the `ids` slice.
+/// For example, if you call:
+/// 
+/// ```rust
+/// notifier.notify(
+///     &[MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)],
+///     &[0, 1]
+/// );
+/// ```
+/// 
+/// it represents two matches: id 0 with interval (1, 2) and id 1 with interval (3, 4).
 pub trait ResultNotifier {
-    /// Notifies a intervals, represented as a slice of `MatchingInterval` pairs.
+    /// Notifies matching results, given slices of intervals and their corresponding identifiers.
     fn notify(&mut self, intervals: &[MatchingInterval], ids: &[usize]);
 }
 
-/// A `ResultNotifier` implementation that prints matched ranges to `stdout`.
+/// A `ResultNotifier` implementation that prints matching results to `stdout`.
 ///
 /// # Examples
 ///
 /// ```rust,ignore
 /// let mut notifier = StdoutResultNotifier;
-/// notifier.notify(&[[1, 2], [3, 4]]); // prints "(1, 2), (3, 4)"
+/// notifier.notify(
+///     &[MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)],
+///     &[0, 1]
+/// ); // prints "(0: 1, 2), (1: 3, 4)" to stdout
 /// ```
 pub struct StdoutResultNotifier;
 
 impl ResultNotifier for StdoutResultNotifier {
     fn notify(&mut self, intervals: &[MatchingInterval], ids: &[usize]) {
-        // Build a single string containing all pairs, then print once.
+        // Build a single string containing all results, then print once.
         // This approach is efficient in a single-threaded context.
         let mut output = String::new();
         for i in 0..intervals.len() {
@@ -68,18 +80,15 @@ impl ResultNotifier for StdoutResultNotifier {
     }
 }
 
-/// A `ResultNotifier` that stores matched ranges in a shared in-memory buffer.
+/// A `ResultNotifier` that stores matching results in a shared in-memory buffer.
 ///
-/// # Type Parameters
-///
-/// - `SharedBufferSource<Vec<MatchingInterval>>` is the source/sink type for the buffer.
-///
+/// The results are stored as `MatchingResult` instances, containing both the intervals and their associated identifiers.
 pub struct SharedBufferResultNotifier {
     buffer: SharedBufferSource<MatchingResult>,
 }
 
 impl SharedBufferResultNotifier {
-    /// Creates a new `SharedBufferResultNotifier` from a `SharedBufferSource`.
+    /// Creates a new `SharedBufferResultNotifier` from a shared buffer source.
     pub fn new(buffer: SharedBufferSource<MatchingResult>) -> Self {
         Self { buffer }
     }
@@ -87,7 +96,7 @@ impl SharedBufferResultNotifier {
 
 impl ResultNotifier for SharedBufferResultNotifier {
     fn notify(&mut self, intervals: &[MatchingInterval], ids: &[usize]) {
-        // We clone because we need to store these values beyond the scope of this call.
+        // Clone the slices because we need to store the data beyond the scope of this call.
         self.buffer.push(MatchingResult {
             intervals: intervals.to_vec(),
             ids: ids.to_vec(),
@@ -95,13 +104,16 @@ impl ResultNotifier for SharedBufferResultNotifier {
     }
 }
 
-/// A `ResultNotifier` that writes matched ranges to a file.
+/// A `ResultNotifier` that writes matching results to a file.
 ///
 /// # Examples
 ///
 /// ```rust,ignore
 /// let mut notifier = FileResultNotifier::new("output.txt").unwrap();
-/// notifier.notify(&[[1, 2], [3, 4]]); // writes "(1, 2), (3, 4)" to "output.txt"
+/// notifier.notify(
+///     &[MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)],
+///     &[0, 1]
+/// ); // writes "0: (1, 2), 1: (3, 4)" to "output.txt"
 /// ```
 pub struct FileResultNotifier {
     file: File,
@@ -121,7 +133,7 @@ impl FileResultNotifier {
 
 impl ResultNotifier for FileResultNotifier {
     fn notify(&mut self, intervals: &[MatchingInterval], ids: &[usize]) {
-        // Build a single line, then write it at once.
+        // Build a single line containing all matching results, then write it at once.
         let mut line = String::new();
         for i in 0..intervals.len() {
             line.push_str(&format!(
@@ -132,7 +144,7 @@ impl ResultNotifier for FileResultNotifier {
                 line.push_str(", ");
             }
         }
-        // Use `writeln!` to append a newline.
+        // Append a newline at the end of the line.
         writeln!(self.file, "{}", line).expect("Failed to write to file");
     }
 }
@@ -145,13 +157,12 @@ mod tests {
 
     #[test]
     fn test_stdout_result_notifier() {
-        // Hard to test stdout automatically, but we can call it to ensure no panics.
+        // While testing stdout automatically is challenging, this ensures no panics occur.
         let mut notifier = StdoutResultNotifier;
         notifier.notify(
             &[MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)],
             &[0, 1],
         );
-        // Manually check the console output if needed.
     }
 
     #[test]
