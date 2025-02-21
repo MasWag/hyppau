@@ -63,37 +63,6 @@ pub type NFAH<'a> = Automata<'a, (String, usize)>;
 /// Represents an NFA over Σ.
 pub type NFA<'a> = Automata<'a, String>;
 
-pub trait TransitionCost: Debug + Clone + Eq + Hash {
-    /// Computes the cost for a transition.
-    ///
-    /// For an automaton over Σ, you might simply return 1
-    /// For an automaton over Σ×Vars, you might return 1 only when a certain condition holds (e.g. a given variable).
-    fn cost(&self, variable: Option<usize>) -> usize;
-}
-
-impl TransitionCost for String {
-    fn cost(&self, _variable: Option<usize>) -> usize {
-        // Every letter contributes 1.
-        1
-    }
-}
-
-impl TransitionCost for (String, usize) {
-    fn cost(&self, variable: Option<usize>) -> usize {
-        let (ref _action, var) = *self;
-        // Only count a cost when `var` matches the variable.
-        if let Some(filter_var) = variable {
-            if var == filter_var {
-                1
-            } else {
-                0
-            }
-        } else {
-            panic!("Variable index required for transition cost");
-        }
-    }
-}
-
 pub trait ValidLabel {
     /// Checks that the label is valid given an optional dimension.
     /// For automata over Σ×Vars, the dimension is required.
@@ -127,7 +96,7 @@ pub struct Automata<'a, L> {
     pub dimensions: usize,
 }
 
-impl<'a, L: Eq + Hash + Clone + TransitionCost + ValidLabel> Automata<'a, L> {
+impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
     /// Creates a new automaton.
     pub fn new(
         states: &'a Arena<State<'a, L>>,

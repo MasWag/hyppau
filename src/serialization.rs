@@ -2,12 +2,12 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    fmt::Debug,
+    fmt::Debug, hash::Hash,
 };
 use typed_arena::Arena;
 
 // Import your NFA types from automata.rs
-use crate::automata::{Automata, State, Transition, TransitionCost, ValidLabel};
+use crate::automata::{Automata, State, Transition, ValidLabel};
 
 #[derive(Serialize, Deserialize)]
 struct SerializedAutomata<L> {
@@ -114,7 +114,7 @@ pub fn serialize_nfa<'a, L: Serialize + Clone>(automata: &Automata<'a, L>) -> St
 /// # Panics
 ///
 /// Panics if JSON parsing fails or if a transition refers to an invalid state.
-pub fn deserialize_nfa<'a, L: Deserialize<'a> + TransitionCost + ValidLabel>(
+pub fn deserialize_nfa<'a, L: Deserialize<'a> + Eq + Hash + Clone + ValidLabel>(
     input: &'a str,
     state_arena: &'a Arena<State<'a, L>>,
     trans_arena: &'a Arena<Transition<'a, L>>,
