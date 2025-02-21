@@ -249,6 +249,75 @@ where
     }
 }
 
+impl<S, A> DFA<S, A>
+where
+    S: Eq + Hash + Clone + Debug,
+    A: Eq + Hash + Clone + Debug,
+{
+    /// Negates (complements) this DFA, assuming it is complete.
+    /// The resulting DFA accepts exactly those words that the original rejects.
+    pub fn negate(&self) -> DFA<S, A> {
+        // 1) Optional check that the DFA is "complete".
+        for s in &self.states {
+            for sym in &self.alphabet {
+                if !self.transitions.contains_key(&(s.clone(), sym.clone())) {
+                    panic!("DFA is not complete, missing transition from {:?} on {:?}", s, sym);
+                }
+            }
+        }
+
+        // 2) Clone everything except the final states
+        let mut new_dfa = DFA {
+            states: self.states.clone(),
+            alphabet: self.alphabet.clone(),
+            initial: self.initial.clone(),
+            finals: HashSet::new(),
+            transitions: self.transitions.clone(),
+        };
+
+        // 3) Flip final vs. non-final
+        //    i.e., new_final = states - old_final
+        for s in &self.states {
+            if !self.finals.contains(s) {
+                new_dfa.finals.insert(s.clone());
+            }
+        }
+
+        new_dfa
+    }
+
+    /// Make this DFA complete by adding a "sink" state (if needed).
+    /// We name the sink state using a provided function or by generating a fresh label.
+    /// Then, for every missing transition (s, a), define s--a--> sink.
+    /// And make every transition from sink loop back to sink.
+    pub fn make_complete(&mut self, sink_label: S) {
+        if self.states.contains(&sink_label) {
+            // your code to handle collision, or panic, or rename
+        } else {
+            // Insert the sink state
+            self.states.insert(sink_label.clone());
+        }
+
+        // For each state s, for each symbol a in the alphabet,
+        // if no transition defined, add s--a--> sink_label
+        for s in self.states.clone() {
+            for sym in &self.alphabet {
+                let key = (s.clone(), sym.clone());
+                if !self.transitions.contains_key(&key) {
+                    self.transitions.insert(key, sink_label.clone());
+                }
+            }
+        }
+
+        // Also, from sink state we ensure we remain in sink on every symbol
+        for sym in &self.alphabet {
+            let key = (sink_label.clone(), sym.clone());
+            self.transitions.insert(key, sink_label.clone());
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,5 +435,45 @@ mod tests {
         // println!("Minimized states: {:?}", minimized.states);
         // println!("Minimized transitions: {:?}", minimized.transitions);
         // Typically it might produce 3 states anyway for this language, or fewer if merges are possible.
+    }
+
+    #[test]
+    fn test_dfa_negation() {
+        // We'll define a complete DFA for "ends in 1"
+        let mut sigma = HashSet::new();
+        sigma.insert('0');
+        sigma.insert('1');
+
+        // initial = 0 => "ends in 0"
+        // we also have state 1 => "ends in 1"
+        let mut dfa = DFA::new(0, sigma);
+
+        dfa.add_state(1);
+        dfa.set_final(1);
+
+        // transitions (complete):
+        //   0 --'0'--> 0
+        //   0 --'1'--> 1
+        //   1 --'0'--> 0
+        //   1 --'1'--> 1
+        dfa.add_transition(0, '0', 0);
+        dfa.add_transition(0, '1', 1);
+        dfa.add_transition(1, '0', 0);
+        dfa.add_transition(1, '1', 1);
+
+        // quick checks
+        assert_eq!(dfa.accepts(&[]), false); // empty => state=0 => not final
+        assert_eq!(dfa.accepts(&['1']), true);
+        assert_eq!(dfa.accepts(&['0', '1']), true);
+        assert_eq!(dfa.accepts(&['1','0','1','0']), false); // ends in 0
+
+        // Negate it
+        let neg_dfa = dfa.negate();
+
+        // Now everything is flipped
+        assert_eq!(neg_dfa.accepts(&[]), true); // original was false
+        assert_eq!(neg_dfa.accepts(&['1']), false);
+        assert_eq!(neg_dfa.accepts(&['0','1']), false);
+        assert_eq!(neg_dfa.accepts(&['1','0','1','0']), true);
     }
 }
