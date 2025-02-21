@@ -221,56 +221,6 @@ impl<'a, L: Eq + Hash + Clone + TransitionCost + ValidLabel> Automata<'a, L> {
         shortest_length.unwrap()
     }
 
-    /// Returns the length of the shortest accepted word in the automaton using BFS.
-    pub fn shortest_accepted_word_length_wrt_var(&self, var: usize) -> Option<usize> {
-        // (state, current_length) is the BFS node;
-        // length increments whenever action != "".
-        let mut queue = VecDeque::new();
-        let mut visited = HashSet::new();
-
-        // Start from all initial states
-        for &initial_state in &self.initial_states {
-            queue.push_back((initial_state, 0));
-            visited.insert((initial_state as *const _, 0));
-        }
-
-        let mut shortest_length: Option<usize> = None;
-
-        while let Some((current_state, length)) = queue.pop_front() {
-            // If current_state is final, update the shortest_length length
-            if current_state.is_final {
-                // Update the shortest length
-                match shortest_length {
-                    None => shortest_length = Some(length),
-                    Some(prev) if length < prev => shortest_length = Some(length),
-                    _ => {}
-                }
-            }
-
-            // Skip if the current word is longer than the shortest length we've found so far
-            if let Some(best) = shortest_length {
-                if length >= best {
-                    continue;
-                }
-            }
-
-            // Explore all transitions from current state
-            for &transition in current_state.transitions.borrow().iter() {
-                let next_state = transition.next_state;
-                let next_state_ptr = next_state as *const _;
-
-                if !visited.contains(&(next_state_ptr, length)) {
-                    let new_length = length + transition.label.cost(Some(var));
-
-                    visited.insert((next_state_ptr, new_length));
-                    queue.push_back((next_state, new_length));
-                }
-            }
-        }
-
-        shortest_length
-    }
-
     /// Returns all prefixes of length `n` that can appear along a path from any initial state.
     ///
     /// We store the entire label `(action, var)` in the prefix.
@@ -416,37 +366,6 @@ impl<'a> NFAH<'a> {
     ) -> &'a NFAHTransition<'a> {
         self.add_transition(from, (action, var), to)
     }
-
-    /// Return the alphabet of the automaton. The alphabet is constructed with BFS.
-    pub fn construct_alphabet(&self) -> HashSet<String> {
-        let mut alphabet = HashSet::new();
-        let mut queue = VecDeque::new();
-        let mut visited = HashSet::new();
-
-        // Initialize BFS from each initial state
-        for &init in &self.initial_states {
-            queue.push_back(init);
-            visited.insert(init);
-        }
-
-        while let Some(current_state) = queue.pop_front() {
-            // If we have a prefix of length `n`, store it
-            if visited.contains(current_state) {
-                continue;
-            }
-
-            // Explore outgoing transitions
-            for &transition in current_state.transitions.borrow().iter() {
-                alphabet.insert(transition.label.0.clone());
-                if !visited.contains(transition.next_state) {
-                    visited.insert(transition.next_state);
-                    queue.push_back(transition.next_state);
-                }
-            }
-        }
-
-        alphabet
-    }
 }
 
 #[cfg(test)]
@@ -509,27 +428,6 @@ mod tests {
         assert_eq!(automaton.shortest_accepted_word_length(), 3);
         let prefixes = automaton.accepted_prefixes(3);
         assert_eq!(prefixes.len(), 2);
-    }
-
-    #[test]
-    fn test_shortest_accepted_word_length_wrt_var() {
-        let state_arena = Arena::new();
-        let trans_arena = Arena::new();
-        let mut automaton = NFAH::new(&state_arena, &trans_arena, 2);
-
-        let s1 = automaton.add_state(true, false);
-        let s12 = automaton.add_state(false, false);
-        let s2 = automaton.add_state(false, false);
-        let s3 = automaton.add_state(false, true);
-
-        automaton.add_nfah_transition(s1, "a".to_string(), 0, s12);
-        automaton.add_nfah_transition(s12, "b".to_string(), 1, s2);
-        automaton.add_nfah_transition(s1, "a".to_string(), 0, s1);
-        automaton.add_nfah_transition(s1, "b".to_string(), 1, s1);
-        automaton.add_nfah_transition(s1, "d".to_string(), 1, s3);
-
-        assert_eq!(automaton.shortest_accepted_word_length_wrt_var(0), Some(0));
-        assert_eq!(automaton.shortest_accepted_word_length_wrt_var(1), Some(1));
     }
 
     #[test]
