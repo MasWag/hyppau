@@ -1,4 +1,4 @@
-use crate::automata::{Automata, State, Transition};
+use crate::automata::{NFAHState, NFAHTransition, ValidLabel, NFAH};
 use std::cell::{Ref, RefCell};
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
@@ -11,9 +11,9 @@ use std::rc::Rc;
 ///
 /// This trait is generic over:
 /// - `'a`: the lifetime of the automaton and its states/transitions.
-/// - `C`: the type of `AutomataConfiguration` that represents a single state of
+/// - `C`: the type of `NFAHConfiguration` that represents a single state of
 ///   the automaton and the positions in the input(s).
-pub trait AutomataRunner<'a, C: AutomataConfiguration<'a> + std::cmp::Eq + std::hash::Hash> {
+pub trait NFAHRunner<'a, C: NFAHConfiguration<'a> + std::cmp::Eq + std::hash::Hash> {
     /// Inserts a single new configuration into the runner's internal set.
     ///
     /// # Arguments
@@ -61,7 +61,7 @@ pub trait AutomataRunner<'a, C: AutomataConfiguration<'a> + std::cmp::Eq + std::
     }
 }
 
-/// A simple implementation of an `AutomataRunner` that stores its configurations
+/// A simple implementation of an `NFAHRunner` that stores its configurations
 /// in a `HashSet`.
 ///
 /// # Type Parameters
@@ -70,7 +70,7 @@ pub trait AutomataRunner<'a, C: AutomataConfiguration<'a> + std::cmp::Eq + std::
 /// This runner supports inserting configurations, iterating over them, and
 /// performing saturation expansions with `consume`.
 pub struct SimpleAutomataRunner<'a> {
-    automaton: &'a Automata<'a>,
+    automaton: &'a NFAH<'a>,
     /// The current set of configurations of type `SimpleAutomataConfiguration`.
     /// Each configuration is unique in the set (thanks to `Hash`/`Eq`).
     pub current_configurations: HashSet<SimpleAutomataConfiguration<'a>>,
@@ -89,7 +89,7 @@ impl<'a> SimpleAutomataRunner<'a> {
     /// # Returns
     ///
     /// A new `SimpleAutomataRunner` with initial configurations set up.
-    pub fn new(automaton: &'a Automata<'a>, input_sequence: Vec<ReadableView<String>>) -> Self {
+    pub fn new(automaton: &'a NFAH<'a>, input_sequence: Vec<ReadableView<String>>) -> Self {
         let mut current_configurations = HashSet::new();
         for initial_state in automaton.initial_states.iter() {
             let config = SimpleAutomataConfiguration::new(initial_state, input_sequence.clone());
@@ -102,7 +102,7 @@ impl<'a> SimpleAutomataRunner<'a> {
     }
 }
 
-impl<'a> AutomataRunner<'a, SimpleAutomataConfiguration<'a>> for SimpleAutomataRunner<'a> {
+impl<'a> NFAHRunner<'a, SimpleAutomataConfiguration<'a>> for SimpleAutomataRunner<'a> {
     /// Inserts a new configuration into the `HashSet`. Duplicate configurations
     /// (i.e., those that are `Eq`) will be automatically skipped.
     fn insert(&mut self, configuration: SimpleAutomataConfiguration<'a>) {
@@ -136,18 +136,18 @@ impl<'a> AutomataRunner<'a, SimpleAutomataConfiguration<'a>> for SimpleAutomataR
 ///
 /// # Lifetime Parameters
 /// * `'a`: lifetime that ties this configuration to the automaton’s states and transitions.
-pub trait AutomataConfiguration<'a> {
+pub trait NFAHConfiguration<'a> {
     /// Returns the number of variables in the automaton.
     fn dimensions(&self) -> usize;
 
     /// Returns a shared reference to the list of outgoing transitions from
     /// the current state.
-    fn transitions(&self) -> Ref<Vec<&Transition<'a>>>;
+    fn transitions(&self) -> Ref<Vec<&NFAHTransition<'a>>>;
 
     /// Creates a new configuration that is identical to `self` except its
     /// current state is replaced with `current_state`. Typically used before
     /// checking or applying transitions.
-    fn duplicate(&self, current_state: &'a State<'a>) -> Self;
+    fn duplicate(&self, current_state: &'a NFAHState<'a>) -> Self;
 
     /// Returns the current "head" element of the `i`-th input sequence, if it exists.
     /// If the sequence is empty at that index, returns `None`.
@@ -182,20 +182,16 @@ pub trait AutomataConfiguration<'a> {
         let mut successors_set = HashSet::new();
         for transition in self.transitions().iter() {
             // Ensure transition.var is within bounds.
-            assert!(
-                transition.var < self.dimensions(),
-                "Transition variable out of bounds: {}, expected < {}",
-                transition.var, self.dimensions()
-            );
+            transition.label.validate(self.dimensions());
             // Create a tentative successor configuration.
             let mut successor = self.duplicate(transition.next_state);
             // Check if the transition is applicable.
-            let head = self.input_head(transition.var);
-            if head.is_none() || transition.action != head.unwrap() {
+            let head = self.input_head(transition.label.1);
+            if head.is_none() || transition.label.0 != head.unwrap() {
                 continue;
             }
             // Consume one symbol on the input for the given dimension.
-            successor.input_advance(transition.var, 1);
+            successor.input_advance(transition.label.1, 1);
             // Insert into the HashSet for deduplication.
             successors_set.insert(successor);
         }
@@ -210,7 +206,7 @@ pub trait AutomataConfiguration<'a> {
 #[derive(Hash, Eq, PartialEq, Debug)]
 pub struct SimpleAutomataConfiguration<'a> {
     /// The current state of the automaton.
-    pub current_state: &'a State<'a>,
+    pub current_state: &'a NFAHState<'a>,
 
     /// A vector of readable views over the input(s) that the automaton consumes.
     /// Each `ReadableView<String>` tracks how far the automaton has read.
@@ -221,13 +217,10 @@ pub struct SimpleAutomataConfiguration<'a> {
 impl<'a> SimpleAutomataConfiguration<'a> {
     /// Creates a new `SimpleAutomataConfiguration` from the given state and
     /// list of `ReadableView`s for each input dimension.
-    ///
-    /// # Arguments
-    ///
-    /// * `current_state` - The automaton state this configuration points to.
-    /// * `input_sequence` - A vector of `ReadableView<String>` representing
-    ///   the input stream for the automaton.
-    pub fn new(current_state: &'a State<'a>, input_sequence: Vec<ReadableView<String>>) -> Self {
+    pub fn new(
+        current_state: &'a NFAHState<'a>,
+        input_sequence: Vec<ReadableView<String>>,
+    ) -> Self {
         Self {
             current_state,
             input_sequence,
@@ -235,16 +228,16 @@ impl<'a> SimpleAutomataConfiguration<'a> {
     }
 }
 
-impl<'a> AutomataConfiguration<'a> for SimpleAutomataConfiguration<'a> {
+impl<'a> NFAHConfiguration<'a> for SimpleAutomataConfiguration<'a> {
     fn dimensions(&self) -> usize {
         self.input_sequence.len()
     }
 
-    fn transitions(&self) -> Ref<Vec<&Transition<'a>>> {
+    fn transitions(&self) -> Ref<Vec<&NFAHTransition<'a>>> {
         self.current_state.transitions.borrow()
     }
 
-    fn duplicate(&self, current_state: &'a State<'a>) -> Self {
+    fn duplicate(&self, current_state: &'a NFAHState<'a>) -> Self {
         Self {
             current_state,
             input_sequence: self.input_sequence.clone(),
@@ -382,6 +375,7 @@ impl<T> ReadableView<T> {
     }
 
     /// Returns `true` if this view shares the same underlying data as another
+    /// ReadableView
     pub fn same_data(&self, other: &ReadableView<T>) -> bool {
         self.data.as_ptr() as *const _ == other.data.as_ptr() as *const _
     }
@@ -424,6 +418,7 @@ impl<T: Eq> Eq for ReadableView<T> {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::automata::NFAH;
     use typed_arena::Arena;
 
     #[test]
@@ -448,9 +443,9 @@ mod tests {
     #[test]
     fn test_readable_view_advance() {
         let mut seq = AppendOnlySequence::new();
-        seq.append("a");
-        seq.append("b");
-        seq.append("c");
+        seq.append("a".to_string());
+        seq.append("b".to_string());
+        seq.append("c".to_string());
         let mut view = seq.readable_view();
         assert_eq!(&*view.readable_slice(), &["a", "b", "c"]);
 
@@ -465,7 +460,7 @@ mod tests {
     fn test_automata_configuration_successors() {
         let state_arena = Arena::new();
         let transition_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &transition_arena, 2);
+        let mut automaton = NFAH::new(&state_arena, &transition_arena, 2);
 
         let s1 = automaton.add_state(true, false);
         let s12 = automaton.add_state(false, false);
@@ -473,12 +468,12 @@ mod tests {
         let s13 = automaton.add_state(false, false);
         let s3 = automaton.add_state(false, true);
 
-        automaton.add_transition(s1, "a".to_string(), 0, s12);
-        automaton.add_transition(s12, "b".to_string(), 1, s2);
-        automaton.add_transition(s1, "a".to_string(), 0, s1);
-        automaton.add_transition(s1, "b".to_string(), 1, s1);
-        automaton.add_transition(s1, "c".to_string(), 0, s13);
-        automaton.add_transition(s13, "d".to_string(), 1, s3);
+        automaton.add_nfah_transition(s1, "a".to_string(), 0, s12);
+        automaton.add_nfah_transition(s12, "b".to_string(), 1, s2);
+        automaton.add_nfah_transition(s1, "a".to_string(), 0, s1);
+        automaton.add_nfah_transition(s1, "b".to_string(), 1, s1);
+        automaton.add_nfah_transition(s1, "c".to_string(), 0, s13);
+        automaton.add_nfah_transition(s13, "d".to_string(), 1, s3);
 
         let mut sequences = vec![AppendOnlySequence::new(), AppendOnlySequence::new()];
         sequences[0].append("a".to_string());
@@ -522,7 +517,7 @@ mod tests {
     fn test_automata_runner() {
         let state_arena = Arena::new();
         let transition_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &transition_arena, 2);
+        let mut automaton = NFAH::new(&state_arena, &transition_arena, 2);
 
         let s1 = automaton.add_state(true, false);
         let s12 = automaton.add_state(false, false);
@@ -530,12 +525,12 @@ mod tests {
         let s13 = automaton.add_state(false, false);
         let s3 = automaton.add_state(false, true);
 
-        automaton.add_transition(s1, "a".to_string(), 0, s12);
-        automaton.add_transition(s12, "b".to_string(), 1, s2);
-        automaton.add_transition(s1, "a".to_string(), 0, s1);
-        automaton.add_transition(s1, "b".to_string(), 1, s1);
-        automaton.add_transition(s1, "c".to_string(), 0, s13);
-        automaton.add_transition(s13, "d".to_string(), 1, s3);
+        automaton.add_nfah_transition(s1, "a".to_string(), 0, s12);
+        automaton.add_nfah_transition(s12, "b".to_string(), 1, s2);
+        automaton.add_nfah_transition(s1, "a".to_string(), 0, s1);
+        automaton.add_nfah_transition(s1, "b".to_string(), 1, s1);
+        automaton.add_nfah_transition(s1, "c".to_string(), 0, s13);
+        automaton.add_nfah_transition(s13, "d".to_string(), 1, s3);
 
         let mut sequences = vec![AppendOnlySequence::new(), AppendOnlySequence::new()];
         sequences[0].append("a".to_string());
@@ -588,7 +583,7 @@ mod tests {
             assert!(successors.contains(&SimpleAutomataConfiguration::new(s12, view)));
         }
 
-        // Moves to s12 after consuming the first element of the second dimention with a self-loop
+        // Moves to s12 after consuming the first element of the second dimension with a self-loop
         {
             let mut view: Vec<ReadableView<String>> =
                 sequences.iter().map(|s| s.readable_view()).collect();

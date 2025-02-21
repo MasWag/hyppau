@@ -4,77 +4,131 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use typed_arena::Arena;
 
-/// Represents a transition for an NFA over Σ x Vars.
-///
-/// Each transition is labeled by a pair (letter, var) where 'letter'
-/// is from the alphabet Σ and 'var' identifies the variable.
-#[derive(Debug, PartialEq)]
-pub struct Transition<'a> {
-    /// The action in the alphabet part of the label.
-    pub action: String,
-    /// The variable part of the label.
-    pub var: usize,
-    /// The state to transition to.
-    pub next_state: &'a State<'a>,
+/// Represents a transition for an NFA.
+#[derive(Debug, PartialEq, Clone)]
+pub struct Transition<'a, L> {
+    pub label: L,
+    pub next_state: &'a State<'a, L>,
 }
 
-impl<'a> Hash for Transition<'a> {
+impl<'a, L: Hash> Hash for Transition<'a, L> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.action.hash(state);
-        self.var.hash(state);
+        self.label.hash(state);
         self.next_state.hash(state);
     }
 }
 
+/// Represents a transition for an NFA over Σ x Vars.
+///
+/// Each transition is labeled by a pair (letter, var) where 'letter'
+/// is from the alphabet Σ and 'var' identifies the variable.
+pub type NFAHTransition<'a> = Transition<'a, (String, usize)>;
+
 /// Represents a state in an NFA.
 ///
 /// Stores whether it is final (accepting) and its outgoing transitions.
-pub struct State<'a> {
+pub struct State<'a, L> {
     /// Outgoing transitions.
-    pub transitions: RefCell<Vec<&'a Transition<'a>>>,
+    pub transitions: RefCell<Vec<&'a Transition<'a, L>>>,
     /// Whether this state is an accepting state.
     pub is_final: bool,
 }
 
-impl<'a> PartialEq for State<'a> {
+impl<'a, L> PartialEq for State<'a, L> {
     fn eq(&self, other: &Self) -> bool {
         // States compared by their pointer address.
         std::ptr::eq(self, other)
     }
 }
 
-impl<'a> Eq for State<'a> {}
+impl<'a, L> Eq for State<'a, L> {}
 
-impl<'a> Debug for State<'a> {
+impl<'a, L> Debug for State<'a, L> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "State({:p}, is_final: {})", self, self.is_final)
     }
 }
 
-impl<'a> Hash for State<'a> {
+impl<'a, L> Hash for State<'a, L> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Simple hash based on the pointer.
         state.write_usize(self as *const _ as usize);
     }
 }
 
+pub type NFAHState<'a> = State<'a, (String, usize)>;
+
 /// Represents an NFA over Σ x Vars.
-pub struct Automata<'a> {
+pub type NFAH<'a> = Automata<'a, (String, usize)>;
+/// Represents an NFA over Σ.
+pub type NFA<'a> = Automata<'a, String>;
+
+pub trait TransitionCost: Debug + Clone + Eq + Hash {
+    /// Computes the cost for a transition.
+    ///
+    /// For an automaton over Σ, you might simply return 1
+    /// For an automaton over Σ×Vars, you might return 1 only when a certain condition holds (e.g. a given variable).
+    fn cost(&self, variable: Option<usize>) -> usize;
+}
+
+impl TransitionCost for String {
+    fn cost(&self, _variable: Option<usize>) -> usize {
+        // Every letter contributes 1.
+        1
+    }
+}
+
+impl TransitionCost for (String, usize) {
+    fn cost(&self, variable: Option<usize>) -> usize {
+        let (ref _action, var) = *self;
+        // Only count a cost when `var` matches the variable.
+        if let Some(filter_var) = variable {
+            if var == filter_var { 1 } else { 0 }
+        } else {
+            panic!("Variable index required for transition cost");
+        }
+    }
+}
+
+
+pub trait ValidLabel {
+    /// Checks that the label is valid given an optional dimension.
+    /// For automata over Σ×Vars, the dimension is required.
+    /// For automata over Σ, the dimension is ignored.
+    fn validate(&self, dimensions: usize);
+}
+
+impl ValidLabel for (String, usize) {
+    fn validate(&self, dimensions: usize) {
+        let (_, var) = self;
+        if *var >= dimensions {
+            panic!("Variable index out of bounds");
+        }
+    }
+}
+
+impl ValidLabel for String {
+    fn validate(&self, _dimensions: usize) {
+        // No validity check is necessary for simple letter labels.
+    }
+}
+
+pub struct Automata<'a, L> {
     /// Arena for `State` allocations.
-    pub states: &'a Arena<State<'a>>,
+    pub states: &'a Arena<State<'a, L>>,
     /// Arena for `Transition` allocations.
-    pub transitions: &'a Arena<Transition<'a>>,
+    pub transitions: &'a Arena<Transition<'a, L>>,
     /// The initial states.
-    pub initial_states: Vec<&'a State<'a>>,
+    pub initial_states: Vec<&'a State<'a, L>>,
     /// The number of variables.
     pub dimensions: usize,
 }
 
-impl<'a> Automata<'a> {
+impl<'a, L: Eq + Hash + Clone + TransitionCost + ValidLabel> Automata<'a, L> {
     /// Creates a new automaton.
     pub fn new(
-        states: &'a Arena<State<'a>>,
-        transitions: &'a Arena<Transition<'a>>,
+        states: &'a Arena<State<'a, L>>,
+        transitions: &'a Arena<Transition<'a, L>>,
         dimension: usize,
     ) -> Self {
         Self {
@@ -90,7 +144,7 @@ impl<'a> Automata<'a> {
     /// # Arguments
     /// * `is_initial` - whether this state is one of the initial states
     /// * `is_final` - whether this state is accepting
-    pub fn add_state(&mut self, is_initial: bool, is_final: bool) -> &'a State<'a> {
+    pub fn add_state(&mut self, is_initial: bool, is_final: bool) -> &'a State<'a, L> {
         let state = self.states.alloc(State {
             transitions: RefCell::new(Vec::new()),
             is_final,
@@ -104,17 +158,13 @@ impl<'a> Automata<'a> {
     /// Adds a transition (action, var) from `from` to `to`.
     pub fn add_transition(
         &self,
-        from: &'a State<'a>,
-        action: String,
-        var: usize,
-        to: &'a State<'a>,
-    ) -> &'a Transition<'a> {
-        if var >= self.dimensions {
-            panic!("Variable index out of bounds");
-        }
+        from: &'a State<'a, L>,
+        label: L,
+        to: &'a State<'a, L>,
+    ) -> &'a Transition<'a, L> {
+        label.validate(self.dimensions);
         let transition = self.transitions.alloc(Transition {
-            action,
-            var,
+            label,
             next_state: to,
         });
         from.transitions.borrow_mut().push(transition);
@@ -160,11 +210,7 @@ impl<'a> Automata<'a> {
                 let next_state_ptr = next_state as *const _;
 
                 if !visited.contains(&(next_state_ptr, length)) {
-                    let new_length = if transition.var == var {
-                        length + 1
-                    } else {
-                        length
-                    };
+                    let new_length = length + transition.label.cost(Some(var));
 
                     visited.insert((next_state_ptr, new_length));
                     queue.push_back((next_state, new_length));
@@ -175,17 +221,17 @@ impl<'a> Automata<'a> {
         shortest_length
     }
 
-    /// Returns all (action, var)-prefixes of length `n` that can appear along a path from any initial state.
+    /// Returns all prefixes of length `n` that can appear along a path from any initial state.
     ///
     /// We store the entire label `(action, var)` in the prefix.
-    pub fn accepted_prefixes(&self, n: usize) -> HashSet<Vec<(String, usize)>> {
+    pub fn accepted_prefixes(&self, n: usize) -> HashSet<Vec<L>> {
         let mut prefixes = HashSet::new();
         let mut queue = VecDeque::new();
         let mut visited = HashSet::new();
 
         // Initialize BFS from each initial state with empty prefix
         for &init in &self.initial_states {
-            queue.push_back((init, Vec::<(String, usize)>::new(), 0));
+            queue.push_back((init, Vec::<L>::new(), 0));
             // we add length=0 for BFS
             visited.insert((init as *const _, vec![]));
         }
@@ -204,7 +250,7 @@ impl<'a> Automata<'a> {
                 if new_length <= n {
                     // Build the new prefix
                     let mut new_prefix = prefix.clone();
-                    new_prefix.push((transition.action.clone(), transition.var.clone()));
+                    new_prefix.push(transition.label.clone());
                     let next_ptr = transition.next_state as *const _;
                     if !visited.contains(&(next_ptr, new_prefix.clone())) {
                         visited.insert((next_ptr, new_prefix.clone()));
@@ -290,22 +336,35 @@ impl<'a> Automata<'a> {
     }
 }
 
-impl<'a> PartialEq for Automata<'a> {
+impl<'a, L> PartialEq for Automata<'a, L> {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self, other)
     }
 }
-impl<'a> Eq for Automata<'a> {}
+impl<'a, L> Eq for Automata<'a, L> {}
 
-impl<'a> Hash for Automata<'a> {
+impl<'a, L> Hash for Automata<'a, L> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Just hash based on the pointer to self’s initial_states for simplicity
         self.initial_states.hash(state);
     }
 }
-impl<'a> Debug for Automata<'a> {
+impl<'a, L> Debug for Automata<'a, L> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Automata({:p})", self)
+        write!(f, "NFAH({:p})", self)
+    }
+}
+
+impl<'a> NFAH<'a> {
+    /// Adds a transition (action, var) from `from` to `to`.
+    pub fn add_nfah_transition(
+        &self,
+        from: &'a NFAHState<'a>,
+        action: String,
+        var: usize,
+        to: &'a NFAHState<'a>,
+    ) -> &'a NFAHTransition<'a> {
+        self.add_transition(from, (action, var), to)
     }
 }
 
@@ -318,7 +377,7 @@ mod tests {
     fn test_add_state() {
         let state_arena = Arena::new();
         let trans_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &trans_arena, 1);
+        let mut automaton = NFAH::new(&state_arena, &trans_arena, 1);
 
         let current_state = automaton.add_state(true, false);
         assert_eq!(automaton.initial_states.len(), 1);
@@ -331,20 +390,20 @@ mod tests {
     fn test_add_transition() {
         let state_arena = Arena::new();
         let trans_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &trans_arena, 1);
+        let mut automaton = NFAH::new(&state_arena, &trans_arena, 1);
 
         let s1 = automaton.add_state(true, false);
         let s2 = automaton.add_state(false, true);
 
-        let t = automaton.add_transition(s1, "a".to_string(), 0, s2);
-        assert_eq!(t.action, "a");
-        assert_eq!(t.var, 0);
+        let t = automaton.add_nfah_transition(s1, "a".to_string(), 0, s2);
+        assert_eq!(t.label.0, "a");
+        assert_eq!(t.label.1, 0);
         assert_eq!(t.next_state, s2);
 
         let all_outgoing = s1.transitions.borrow();
         assert_eq!(all_outgoing.len(), 1);
-        assert_eq!(all_outgoing[0].action, "a");
-        assert_eq!(all_outgoing[0].var, 0);
+        assert_eq!(all_outgoing[0].label.0, "a");
+        assert_eq!(all_outgoing[0].label.1, 0);
         assert_eq!(all_outgoing[0].next_state, s2);
     }
 
@@ -352,18 +411,18 @@ mod tests {
     fn test_shortest_accepted_word_length() {
         let state_arena = Arena::new();
         let trans_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &trans_arena, 2);
+        let mut automaton = NFAH::new(&state_arena, &trans_arena, 2);
 
         let s1 = automaton.add_state(true, false);
         let s12 = automaton.add_state(false, false);
         let s2 = automaton.add_state(false, false);
         let s3 = automaton.add_state(false, true);
 
-        automaton.add_transition(s1, "a".to_string(), 0, s12);
-        automaton.add_transition(s12, "b".to_string(), 1, s2);
-        automaton.add_transition(s1, "a".to_string(), 0, s1);
-        automaton.add_transition(s1, "b".to_string(), 1, s1);
-        automaton.add_transition(s1, "d".to_string(), 1, s3);
+        automaton.add_nfah_transition(s1, "a".to_string(), 0, s12);
+        automaton.add_nfah_transition(s12, "b".to_string(), 1, s2);
+        automaton.add_nfah_transition(s1, "a".to_string(), 0, s1);
+        automaton.add_nfah_transition(s1, "b".to_string(), 1, s1);
+        automaton.add_nfah_transition(s1, "d".to_string(), 1, s3);
 
         assert_eq!(automaton.shortest_accepted_word_length(0), Some(0));
         assert_eq!(automaton.shortest_accepted_word_length(1), Some(1));
@@ -373,7 +432,7 @@ mod tests {
     fn test_accepted_prefixes() {
         let state_arena = Arena::new();
         let trans_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &trans_arena, 2);
+        let mut automaton = NFAH::new(&state_arena, &trans_arena, 2);
 
         let s1 = automaton.add_state(true, false);
         let s12 = automaton.add_state(false, false);
@@ -381,12 +440,12 @@ mod tests {
         let s13 = automaton.add_state(false, false);
         let s3 = automaton.add_state(false, true);
 
-        automaton.add_transition(s1, "a".to_string(), 0, s12);
-        automaton.add_transition(s12, "b".to_string(), 1, s2);
-        automaton.add_transition(s1, "a".to_string(), 0, s1);
-        automaton.add_transition(s1, "b".to_string(), 1, s1);
-        automaton.add_transition(s1, "c".to_string(), 0, s13);
-        automaton.add_transition(s13, "d".to_string(), 1, s3);
+        automaton.add_nfah_transition(s1, "a".to_string(), 0, s12);
+        automaton.add_nfah_transition(s12, "b".to_string(), 1, s2);
+        automaton.add_nfah_transition(s1, "a".to_string(), 0, s1);
+        automaton.add_nfah_transition(s1, "b".to_string(), 1, s1);
+        automaton.add_nfah_transition(s1, "c".to_string(), 0, s13);
+        automaton.add_nfah_transition(s13, "d".to_string(), 1, s3);
 
         // accepted prefixes of length 0 => the empty prefix
         let p0 = automaton.accepted_prefixes(0);
@@ -406,7 +465,7 @@ mod tests {
     fn test_remove_unreachable_transitions() {
         let state_arena = Arena::new();
         let trans_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &trans_arena, 3);
+        let mut automaton = NFAH::new(&state_arena, &trans_arena, 3);
 
         let s1 = automaton.add_state(true, false);
         let s2 = automaton.add_state(false, false);
@@ -414,12 +473,12 @@ mod tests {
         let s4 = automaton.add_state(false, false);
 
         // s1 --( "a", x0 )--> s2
-        automaton.add_transition(s1, "a".to_string(), 0, s2);
+        automaton.add_nfah_transition(s1, "a".to_string(), 0, s2);
         // s2 --( "", x1 )--> s3
-        automaton.add_transition(s2, "".to_string(), 1, s3);
+        automaton.add_nfah_transition(s2, "".to_string(), 1, s3);
         // s1 --( "x", x2 )--> s4  (but s4 does not lead to any final state)
 
-        automaton.add_transition(s1, "x".to_string(), 2, s4);
+        automaton.add_nfah_transition(s1, "x".to_string(), 2, s4);
         // Right now, s1->s4 is reachable from an initial state,
         // but s4 is not leading to any final => s4 is not "useful."
         // So that transition should be removed.
@@ -430,8 +489,8 @@ mod tests {
         {
             let s1_trans = s1.transitions.borrow();
             assert_eq!(s1_trans.len(), 1);
-            assert_eq!(s1_trans[0].action, "a");
-            assert_eq!(s1_trans[0].var, 0);
+            assert_eq!(s1_trans[0].label.0, "a");
+            assert_eq!(s1_trans[0].label.1, 0);
         }
         // s4 transitions are empty, but that doesn't matter since
         // s4 won't even be recognized as "reachable to final"

@@ -1,16 +1,16 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{collections::{HashMap, HashSet, VecDeque}, fmt::Debug};
 use typed_arena::Arena;
 
 // Import your NFA types from automata.rs
-use crate::automata::{Automata, State, Transition};
+use crate::automata::{Automata, State, Transition, TransitionCost, ValidLabel};
 
 #[derive(Serialize, Deserialize)]
-struct SerializedAutomata {
+struct SerializedAutomata<L> {
     dimensions: usize,
     states: Vec<SerializedState>,
-    transitions: Vec<SerializedTransition>,
+    transitions: Vec<SerializedTransition<L>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -21,21 +21,20 @@ struct SerializedState {
 }
 
 #[derive(Serialize, Deserialize)]
-struct SerializedTransition {
+struct SerializedTransition<L> {
     from: usize,
     to: usize,
-    action: String,
-    var: usize,
+    label: L,
 }
 
 /// Serializes the given NFA into a JSON string.
 ///
 /// The serialization traverses the automata (starting from the initial states),
 /// assigns an ID to each reachable state, and then outputs the states and transitions.
-pub fn serialize_nfa<'a>(automata: &Automata<'a>) -> String {
+pub fn serialize_nfa<'a, L: Serialize + Clone>(automata: &Automata<'a, L>) -> String {
     // Mapping from state pointer to (state reference, assigned id)
-    let mut state_ids: HashMap<*const State, (&State, usize)> = HashMap::new();
-    let mut queue: VecDeque<&State> = VecDeque::new();
+    let mut state_ids: HashMap<*const State<'a, L>, (&State<'a, L>, usize)> = HashMap::new();
+    let mut queue: VecDeque<&State<'a, L>> = VecDeque::new();
 
     // Start from each initial state.
     for state in &automata.initial_states {
@@ -44,7 +43,7 @@ pub fn serialize_nfa<'a>(automata: &Automata<'a>) -> String {
 
     let mut next_id = 0;
     while let Some(state) = queue.pop_front() {
-        let ptr = state as *const State;
+        let ptr = state as *const State<'a, L>;
         if state_ids.contains_key(&ptr) {
             continue;
         }
@@ -57,18 +56,18 @@ pub fn serialize_nfa<'a>(automata: &Automata<'a>) -> String {
     }
 
     // Create a set of initial state pointers for easy lookup.
-    let initial_ptrs: HashSet<*const State> =
-        automata.initial_states.iter().map(|s| *s as *const State).collect();
+    let initial_ptrs: HashSet<*const State<'a, L>> =
+        automata.initial_states.iter().map(|s| *s as *const State<'a, L>).collect();
 
     // Build the vector of serialized states.
     let mut states_vec = Vec::new();
     // Sorting states by their assigned id for a deterministic order.
-    let mut states_by_id: Vec<(&State, usize)> = state_ids.values().cloned().collect();
+    let mut states_by_id: Vec<(&State<'a, L>, usize)> = state_ids.values().cloned().collect();
     states_by_id.sort_by_key(|&(_, id)| id);
     for (state, id) in states_by_id {
         states_vec.push(SerializedState {
             id,
-            is_initial: initial_ptrs.contains(&(state as *const State)),
+            is_initial: initial_ptrs.contains(&(state as *const State<'a, L>)),
             is_final: state.is_final,
         });
     }
@@ -77,16 +76,15 @@ pub fn serialize_nfa<'a>(automata: &Automata<'a>) -> String {
     let mut transitions_vec = Vec::new();
     for (&_ptr, &(state, id)) in &state_ids {
         for t in state.transitions.borrow().iter() {
-            let target_ptr = t.next_state as *const State;
+            let target_ptr = t.next_state as *const State<'a, L>;
             let target_id = state_ids
                 .get(&target_ptr)
                 .expect("Target state not found in state_ids")
                 .1;
-            transitions_vec.push(SerializedTransition {
+            transitions_vec.push(SerializedTransition::<L> {
                 from: id,
                 to: target_id,
-                action: t.action.clone(),
-                var: t.var,
+                label: t.label.clone(),
             });
         }
     }
@@ -110,17 +108,17 @@ pub fn serialize_nfa<'a>(automata: &Automata<'a>) -> String {
 /// # Panics
 ///
 /// Panics if JSON parsing fails or if a transition refers to an invalid state.
-pub fn deserialize_nfa<'a>(
-    input: &str,
-    state_arena: &'a Arena<State<'a>>,
-    trans_arena: &'a Arena<Transition<'a>>,
-) -> Automata<'a> {
-    let ser: SerializedAutomata =
+pub fn deserialize_nfa<'a, L: Deserialize<'a> + TransitionCost + ValidLabel>(
+    input: &'a str,
+    state_arena: &'a Arena<State<'a, L>>,
+    trans_arena: &'a Arena<Transition<'a, L>>,
+) -> Automata<'a, L> {
+    let ser: SerializedAutomata<L> =
         serde_json::from_str(input).expect("Failed to deserialize NFA from JSON");
 
     let mut automata = Automata::new(state_arena, trans_arena, ser.dimensions);
     let num_states = ser.states.len();
-    let mut id_to_state: Vec<Option<&'a State<'a>>> = vec![None; num_states];
+    let mut id_to_state: Vec<Option<&'a State<'a, L>>> = vec![None; num_states];
 
     // Create states in the automata.
     for s in ser.states {
@@ -137,7 +135,7 @@ pub fn deserialize_nfa<'a>(
             .expect(&format!("Invalid 'from' state id: {}", t.from));
         let to_state = id_to_state[t.to]
             .expect(&format!("Invalid 'to' state id: {}", t.to));
-        automata.add_transition(from_state, t.action, t.var, to_state);
+        automata.add_transition(from_state, t.label, to_state);
     }
 
     automata
@@ -148,15 +146,15 @@ pub fn deserialize_nfa<'a>(
 /// Each state is assigned a unique identifier (based on a BFS from the initial states).
 /// Final states are drawn with a `doublecircle` shape, while non-final states use a `circle`.
 /// An invisible __start__ node points to all initial states.
-pub fn automaton_to_dot<'a>(automata: &Automata<'a>) -> String {
+pub fn automaton_to_dot<'a, L: Debug> (automata: &Automata<'a, L>) -> String {
     // Map each state's pointer to a unique id and store the state pointers.
-    let mut state_ids: HashMap<*const State, usize> = HashMap::new();
-    let mut id_to_state: Vec<&State> = Vec::new();
-    let mut queue: VecDeque<&State> = VecDeque::new();
+    let mut state_ids: HashMap<*const State<'a, L>, usize> = HashMap::new();
+    let mut id_to_state: Vec<&State<'a, L>> = Vec::new();
+    let mut queue: VecDeque<&State<'a, L>> = VecDeque::new();
 
     // Enqueue initial states.
     for &state in &automata.initial_states {
-        let ptr = state as *const State;
+        let ptr = state as *const State<'a, L>;
         if !state_ids.contains_key(&ptr) {
             state_ids.insert(ptr, id_to_state.len());
             id_to_state.push(state);
@@ -168,7 +166,7 @@ pub fn automaton_to_dot<'a>(automata: &Automata<'a>) -> String {
     while let Some(state) = queue.pop_front() {
         for t in state.transitions.borrow().iter() {
             let next_state = t.next_state;
-            let ptr = next_state as *const State;
+            let ptr = next_state as *const State<'a, L>;
             if !state_ids.contains_key(&ptr) {
                 state_ids.insert(ptr, id_to_state.len());
                 id_to_state.push(next_state);
@@ -185,7 +183,7 @@ pub fn automaton_to_dot<'a>(automata: &Automata<'a>) -> String {
 
     // Create edges from the invisible __start__ to all initial states.
     for &state in &automata.initial_states {
-        let id = state_ids[&(state as *const State)];
+        let id = state_ids[&(state as *const State<'a, L>)];
         dot.push_str(&format!("  __start__ -> state{};\n", id));
     }
 
@@ -199,10 +197,10 @@ pub fn automaton_to_dot<'a>(automata: &Automata<'a>) -> String {
     // Define edges for transitions.
     for (id, state) in id_to_state.iter().enumerate() {
         for t in state.transitions.borrow().iter() {
-            let target_id = state_ids[&(t.next_state as *const State)];
+            let target_id = state_ids[&(t.next_state as *const State<'a, L>)];
             dot.push_str(&format!(
-                "  state{} -> state{} [label=\"{}/{}\"];\n",
-                id, target_id, t.action, t.var
+                "  state{} -> state{} [label=\"{:?}\"];\n",
+                id, target_id, t.label
             ));
         }
     }
@@ -214,7 +212,7 @@ pub fn automaton_to_dot<'a>(automata: &Automata<'a>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::automata::{Automata, State, Transition};
+    use crate::automata::{Automata, NFAHState, NFAHTransition};
     use std::collections::{HashSet, VecDeque};
     use typed_arena::Arena;
 
@@ -236,10 +234,10 @@ mod tests {
         // s0 --("b", 1)--> s2
         // s1 --("c", 0)--> s2
         // s2 --("d", 1)--> s0
-        automata.add_transition(s0, "a".to_string(), 0, s1);
-        automata.add_transition(s0, "b".to_string(), 1, s2);
-        automata.add_transition(s1, "c".to_string(), 0, s2);
-        automata.add_transition(s2, "d".to_string(), 1, s0);
+        automata.add_nfah_transition(s0, "a".to_string(), 0, s1);
+        automata.add_nfah_transition(s0, "b".to_string(), 1, s2);
+        automata.add_nfah_transition(s1, "c".to_string(), 0, s2);
+        automata.add_nfah_transition(s2, "d".to_string(), 1, s0);
 
         // Serialize the automata to JSON.
         let serialized = serialize_nfa(&automata);
@@ -255,18 +253,18 @@ mod tests {
         assert_eq!(automata.dimensions, deserialized.dimensions);
 
         // Count reachable states in the deserialized automata using BFS.
-        let mut seen_states: HashSet<*const State> = HashSet::new();
+        let mut seen_states: HashSet<*const NFAHState> = HashSet::new();
         let mut queue = VecDeque::new();
         for &init in deserialized.initial_states.iter() {
             queue.push_back(init);
         }
         while let Some(state) = queue.pop_front() {
-            let ptr = state as *const _;
+            let ptr = state as *const NFAHState;
             if seen_states.contains(&ptr) {
                 continue;
             }
             seen_states.insert(ptr);
-            for &t in state.transitions.borrow().iter() {
+            for t in state.transitions.borrow().iter() {
                 queue.push_back(t.next_state);
             }
         }
@@ -274,14 +272,14 @@ mod tests {
         assert_eq!(seen_states.len(), 3);
 
         // Count transitions in the deserialized automata.
-        let mut seen_transitions: HashSet<*const Transition> = HashSet::new();
+        let mut seen_transitions: HashSet<*const NFAHTransition> = HashSet::new();
         let mut queue = VecDeque::new();
         for &init in deserialized.initial_states.iter() {
             queue.push_back(init);
         }
         while let Some(state) = queue.pop_front() {
             for &t in state.transitions.borrow().iter() {
-                let t_ptr = t as *const Transition;
+                let t_ptr = t as *const NFAHTransition;
                 if !seen_transitions.insert(t_ptr) {
                     continue;
                 }
@@ -290,5 +288,39 @@ mod tests {
         }
         // We expect 4 transitions.
         assert_eq!(seen_transitions.len(), 4);
+    }
+
+    #[test]
+    fn test_automaton_to_dot() {
+        let state_arena = Arena::new();
+        let transition_arena = Arena::new();
+        let mut automata = Automata::new(&state_arena, &transition_arena, 1);
+
+        // Create states: s0 (initial), s1 (final), s2 (non-final).
+        let s0 = automata.add_state(true, false);
+        let s1 = automata.add_state(false, true);
+        let s2 = automata.add_state(false, false);
+
+        // Add transitions:
+        // s0 --("a", 0)--> s1
+        // s1 --("b", 0)--> s2
+        // s2 --("c", 0)--> s0
+        automata.add_nfah_transition(s0, "a".to_string(), 0, s1);
+        automata.add_nfah_transition(s1, "b".to_string(), 0, s2);
+        automata.add_nfah_transition(s2, "c".to_string(), 0, s0);
+
+        let dot = automaton_to_dot(&automata);
+        // Uncomment for debugging:
+        // println!("DOT representation:\n{}", dot);
+
+        // Basic checks on the DOT output.
+        assert!(dot.contains("digraph NFA {"));
+        assert!(dot.contains("__start__ -> state0;"));
+        assert!(dot.contains("state0 [label=\"State 0\", shape=circle];"));
+        assert!(dot.contains("state1 [label=\"State 1\", shape=doublecircle];"));
+        assert!(dot.contains("state2 [label=\"State 2\", shape=circle];"));
+        assert!(dot.contains("state0 -> state1 [label=\"(\"a\", 0)\"];"));
+        assert!(dot.contains("state1 -> state2 [label=\"(\"b\", 0)\"];"));
+        assert!(dot.contains("state2 -> state0 [label=\"(\"c\", 0)\"];"));
     }
 }

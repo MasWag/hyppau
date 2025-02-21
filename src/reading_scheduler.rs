@@ -92,12 +92,12 @@ mod tests {
         let s13 = automaton.add_state(false, false);
         let s3 = automaton.add_state(false, true);
 
-        automaton.add_transition(s1, "a".to_string(), 0, s12);
-        automaton.add_transition(s12, "b".to_string(), 1, s2);
-        automaton.add_transition(s1, "a".to_string(), 0, s1);
-        automaton.add_transition(s1, "b".to_string(), 1, s1);
-        automaton.add_transition(s1, "c".to_string(), 0, s13);
-        automaton.add_transition(s13, "d".to_string(), 1, s3);
+        automaton.add_nfah_transition(s1, "a".to_string(), 0, s12);
+        automaton.add_nfah_transition(s12, "b".to_string(), 1, s2);
+        automaton.add_nfah_transition(s1, "a".to_string(), 0, s1);
+        automaton.add_nfah_transition(s1, "b".to_string(), 1, s1);
+        automaton.add_nfah_transition(s1, "c".to_string(), 0, s13);
+        automaton.add_nfah_transition(s13, "d".to_string(), 1, s3);
 
         let input_buffers = vec![SharedBuffer::new(), SharedBuffer::new()];
         let input_buffers_source: Vec<SharedBufferSource<&str>> =

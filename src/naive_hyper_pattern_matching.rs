@@ -1,5 +1,5 @@
-use crate::automata::Automata;
-use crate::automata_runner::{AppendOnlySequence, AutomataRunner};
+use crate::automata::NFAH;
+use crate::automata_runner::{AppendOnlySequence, NFAHRunner};
 use crate::hyper_pattern_matching::{HyperPatternMatching, PatternMatchingAutomataRunner};
 use crate::result_notifier::{MatchingInterval, ResultNotifier};
 use itertools::Itertools;
@@ -40,7 +40,7 @@ pub struct NaiveHyperPatternMatching<'a, Notifier: ResultNotifier> {
 
 impl<'a, Notifier: ResultNotifier> NaiveHyperPatternMatching<'a, Notifier> {
     pub fn new(
-        automaton: &'a Automata<'a>,
+        automaton: &'a NFAH<'a>,
         notifier: Notifier,
         sequences: Vec<AppendOnlySequence<String>>,
     ) -> Self {
@@ -223,7 +223,7 @@ mod tests {
     fn test_run() {
         let state_arena = Arena::new();
         let transition_arena = Arena::new();
-        let mut automaton = Automata::new(&state_arena, &transition_arena, 2);
+        let mut automaton = NFAH::new(&state_arena, &transition_arena, 2);
 
         let s1 = automaton.add_state(true, false);
         let s12 = automaton.add_state(false, false);
@@ -231,12 +231,12 @@ mod tests {
         let s13 = automaton.add_state(false, false);
         let s3 = automaton.add_state(false, true);
 
-        automaton.add_transition(s1, "a".to_string(), 0, s12);
-        automaton.add_transition(s12, "b".to_string(), 1, s2);
-        automaton.add_transition(s1, "a".to_string(), 0, s1);
-        automaton.add_transition(s1, "b".to_string(), 1, s1);
-        automaton.add_transition(s1, "c".to_string(), 0, s13);
-        automaton.add_transition(s13, "d".to_string(), 1, s3);
+        automaton.add_nfah_transition(s1, "a".to_string(), 0, s12);
+        automaton.add_nfah_transition(s12, "b".to_string(), 1, s2);
+        automaton.add_nfah_transition(s1, "a".to_string(), 0, s1);
+        automaton.add_nfah_transition(s1, "b".to_string(), 1, s1);
+        automaton.add_nfah_transition(s1, "c".to_string(), 0, s13);
+        automaton.add_nfah_transition(s13, "d".to_string(), 1, s3);
 
         let input_buffers = vec![SharedBuffer::new(), SharedBuffer::new()];
         let reader = MultiStreamReader::new(

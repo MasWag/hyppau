@@ -1,12 +1,11 @@
-use crate::automata::{Automata, State, Transition};
-use crate::automata_runner::{
-    AppendOnlySequence, AutomataConfiguration, AutomataRunner, ReadableView,
-};
+use crate::automata::{NFAHState, NFAHTransition, NFAH};
+use crate::automata_runner::{AppendOnlySequence, NFAHConfiguration, NFAHRunner, ReadableView};
 use crate::result_notifier::{MatchingInterval, ResultNotifier};
 use itertools::Itertools;
 use std::cell::Ref;
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
+use std::hash::Hash;
 
 // Trait of pattern matching algorithms
 pub trait HyperPatternMatching {
@@ -22,7 +21,7 @@ pub trait HyperPatternMatching {
 
 pub struct PatternMatchingAutomataRunner<'a> {
     /// The current set of configurations of type `PatternMatchingAutomataConfiguration`.
-    automaton: &'a Automata<'a>,
+    automaton: &'a NFAH<'a>,
     /// Each configuration is unique in the set (thanks to `Hash`/`Eq`).
     pub current_configurations: HashSet<PatternMatchingAutomataConfiguration<'a>>,
     /// The possible streams to be used
@@ -40,7 +39,7 @@ impl<'a> PatternMatchingAutomataRunner<'a> {
     /// # Returns
     ///
     /// A new `PatternMatchingAutomataRunner` with initial configurations set up.
-    pub fn new(automaton: &'a Automata<'a>, views: Vec<ReadableView<String>>) -> Self {
+    pub fn new(automaton: &'a NFAH<'a>, views: Vec<ReadableView<String>>) -> Self {
         let current_configurations = HashSet::new();
         Self {
             automaton,
@@ -63,9 +62,7 @@ impl<'a> PatternMatchingAutomataRunner<'a> {
     }
 }
 
-impl<'a> AutomataRunner<'a, PatternMatchingAutomataConfiguration<'a>>
-    for PatternMatchingAutomataRunner<'a>
-{
+impl<'a> NFAHRunner<'a, PatternMatchingAutomataConfiguration<'a>> for PatternMatchingAutomataRunner<'a> {
     /// Inserts a new configuration into the `HashSet`. Duplicate configurations
     /// (i.e., those that are `Eq`) will be automatically skipped.
     fn insert(&mut self, configuration: PatternMatchingAutomataConfiguration<'a>) {
@@ -86,8 +83,11 @@ impl<'a> AutomataRunner<'a, PatternMatchingAutomataConfiguration<'a>>
     /// using the provided `input_sequence`.
     fn insert_from_initial_states(&mut self, input_sequence: Vec<ReadableView<String>>) {
         if self.automaton.dimensions != input_sequence.len() {
-            panic!("Input sequence dimensions do not match automaton dimensions: expected {}, got {}",
-                   self.automaton.dimensions, input_sequence.len());
+            panic!(
+                "Input sequence dimensions do not match automaton dimensions: expected {}, got {}",
+                self.automaton.dimensions,
+                input_sequence.len()
+            );
         }
         let mut ids = vec![];
         for sequence in &input_sequence {
@@ -113,7 +113,7 @@ impl<'a> AutomataRunner<'a, PatternMatchingAutomataConfiguration<'a>>
 #[derive(Hash, Eq, PartialEq, Debug)]
 pub struct PatternMatchingAutomataConfiguration<'a> {
     /// The current state of the automaton.
-    pub current_state: &'a State<'a>,
+    pub current_state: &'a NFAHState<'a>,
 
     /// A vector of readable views over the input(s) that the automaton consumes.
     /// Each `ReadableView<String>` tracks how far the automaton has read.
@@ -136,7 +136,7 @@ impl<'a> PatternMatchingAutomataConfiguration<'a> {
     /// * `input_sequence` - A vector of `ReadableView<String>` representing
     ///   the input stream for the automaton.
     pub fn new(
-        current_state: &'a State<'a>,
+        current_state: &'a NFAHState<'a>,
         input_sequence: Vec<ReadableView<String>>,
         ids: Vec<usize>,
     ) -> Self {
@@ -158,16 +158,16 @@ impl<'a> PatternMatchingAutomataConfiguration<'a> {
     }
 }
 
-impl<'a> AutomataConfiguration<'a> for PatternMatchingAutomataConfiguration<'a> {
+impl<'a> NFAHConfiguration<'a> for PatternMatchingAutomataConfiguration<'a> {
     fn dimensions(&self) -> usize {
         self.input_sequence.len()
     }
 
-    fn transitions(&self) -> Ref<Vec<&Transition<'a>>> {
+    fn transitions(&self) -> Ref<Vec<&NFAHTransition<'a>>> {
         self.current_state.transitions.borrow()
     }
 
-    fn duplicate(&self, current_state: &'a State<'a>) -> Self {
+    fn duplicate(&self, current_state: &'a NFAHState<'a>) -> Self {
         Self {
             current_state,
             input_sequence: self.input_sequence.clone(),
@@ -205,7 +205,7 @@ pub struct OnlineHyperPatternMatching<'a, Notifier: ResultNotifier> {
 
 impl<'a, Notifier: ResultNotifier> OnlineHyperPatternMatching<'a, Notifier> {
     pub fn new(
-        automaton: &'a Automata<'a>,
+        automaton: &'a NFAH<'a>,
         notifier: Notifier,
         sequences: Vec<AppendOnlySequence<String>>,
     ) -> Self {
@@ -278,11 +278,9 @@ impl<'a, Notifier: ResultNotifier> HyperPatternMatching
         self.sequences.len()
     }
 
-    fn consume_remaining(&mut self) {
-    }
+    fn consume_remaining(&mut self) {}
 
-    fn set_eof(&mut self, _track: usize) {
-    }
+    fn set_eof(&mut self, _track: usize) {}
 }
 
 #[cfg(test)]
@@ -295,7 +293,7 @@ mod tests {
     fn test_automata_configuration_successors() {
         let state_arena = Arena::new();
         let transition_arena = Arena::new();
-        let mut automata = Automata::new(&state_arena, &transition_arena, 2);
+        let mut automata = NFAH::new(&state_arena, &transition_arena, 2);
 
         let s1 = automata.add_state(true, false);
         let s12 = automata.add_state(false, false);
@@ -303,12 +301,12 @@ mod tests {
         let s13 = automata.add_state(false, false);
         let s3 = automata.add_state(false, true);
 
-        automata.add_transition(s1, "a".to_string(), 0, s12);
-        automata.add_transition(s12, "b".to_string(), 1, s2);
-        automata.add_transition(s1, "a".to_string(), 0, s1);
-        automata.add_transition(s1, "b".to_string(), 1, s1);
-        automata.add_transition(s1, "c".to_string(), 0, s13);
-        automata.add_transition(s13, "d".to_string(), 1, s3);
+        automata.add_nfah_transition(s1, "a".to_string(), 0, s12);
+        automata.add_nfah_transition(s12, "b".to_string(), 1, s2);
+        automata.add_nfah_transition(s1, "a".to_string(), 0, s1);
+        automata.add_nfah_transition(s1, "b".to_string(), 1, s1);
+        automata.add_nfah_transition(s1, "c".to_string(), 0, s13);
+        automata.add_nfah_transition(s13, "d".to_string(), 1, s3);
 
         let mut sequences = vec![AppendOnlySequence::new(), AppendOnlySequence::new()];
         sequences[0].append("a".to_string());
@@ -357,7 +355,7 @@ mod tests {
     fn test_automata_runner() {
         let state_arena = Arena::new();
         let transition_arena = Arena::new();
-        let mut automata = Automata::new(&state_arena, &transition_arena, 2);
+        let mut automata = NFAH::new(&state_arena, &transition_arena, 2);
 
         let s1 = automata.add_state(true, false);
         let s12 = automata.add_state(false, false);
@@ -365,12 +363,12 @@ mod tests {
         let s13 = automata.add_state(false, false);
         let s3 = automata.add_state(false, true);
 
-        automata.add_transition(s1, "a".to_string(), 0, s12);
-        automata.add_transition(s12, "b".to_string(), 1, s2);
-        automata.add_transition(s1, "a".to_string(), 0, s1);
-        automata.add_transition(s1, "b".to_string(), 1, s1);
-        automata.add_transition(s1, "c".to_string(), 0, s13);
-        automata.add_transition(s13, "d".to_string(), 1, s3);
+        automata.add_nfah_transition(s1, "a".to_string(), 0, s12);
+        automata.add_nfah_transition(s12, "b".to_string(), 1, s2);
+        automata.add_nfah_transition(s1, "a".to_string(), 0, s1);
+        automata.add_nfah_transition(s1, "b".to_string(), 1, s1);
+        automata.add_nfah_transition(s1, "c".to_string(), 0, s13);
+        automata.add_nfah_transition(s13, "d".to_string(), 1, s3);
 
         let mut sequences = vec![AppendOnlySequence::new(), AppendOnlySequence::new()];
         sequences[0].append("a".to_string());
