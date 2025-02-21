@@ -7,7 +7,9 @@ use typed_arena::Arena;
 
 use crate::automata_runner::AppendOnlySequence;
 use crate::multi_stream_reader::{MultiStreamReader, StreamSource};
-use crate::result_notifier::{FileResultNotifier, ResultNotifier, StdoutResultNotifier, MatchingInterval};
+use crate::result_notifier::{
+    FileResultNotifier, MatchingInterval, ResultNotifier, StdoutResultNotifier,
+};
 use crate::serialization::{automaton_to_dot, deserialize_nfa};
 
 enum ResultNotifierType {
@@ -24,9 +26,9 @@ impl ResultNotifier for ResultNotifierType {
     }
 }
 
+use crate::hyper_pattern_matching::OnlineHyperPatternMatching;
 use crate::naive_hyper_pattern_matching::NaiveHyperPatternMatching;
 use crate::reading_scheduler::ReadingScheduler;
-use crate::hyper_pattern_matching::OnlineHyperPatternMatching;
 
 #[derive(Clone, Debug, ValueEnum)]
 enum Mode {
@@ -72,6 +74,7 @@ mod automata_runner;
 mod hyper_pattern_matching;
 mod multi_stream_reader;
 mod naive_hyper_pattern_matching;
+mod quick_search_skip_values;
 mod reading_scheduler;
 mod result_notifier;
 mod serialization;
@@ -160,7 +163,10 @@ fn main() {
     }
 
     // Construct MultiStreamReader from the input files
-    debug!("Construct MultiStreamReader from input files: {:?}", args.input);
+    debug!(
+        "Construct MultiStreamReader from input files: {:?}",
+        args.input
+    );
     let multi_stream_reader = MultiStreamReader::new(
         args.input
             .iter()
@@ -185,20 +191,28 @@ fn main() {
             let hyper_pattern_matching = NaiveHyperPatternMatching::new(
                 &automaton,
                 result_notifier,
-                args.input.into_iter().map(|_| AppendOnlySequence::new()).collect(),
+                args.input
+                    .into_iter()
+                    .map(|_| AppendOnlySequence::new())
+                    .collect(),
             );
-            let mut reading_scheduler = ReadingScheduler::new(hyper_pattern_matching, multi_stream_reader);
+            let mut reading_scheduler =
+                ReadingScheduler::new(hyper_pattern_matching, multi_stream_reader);
             reading_scheduler.run();
-        },
+        }
         Mode::Online => {
             let hyper_pattern_matching = OnlineHyperPatternMatching::new(
                 &automaton,
                 result_notifier,
-                args.input.into_iter().map(|_| AppendOnlySequence::new()).collect(),
+                args.input
+                    .into_iter()
+                    .map(|_| AppendOnlySequence::new())
+                    .collect(),
             );
-            let mut reading_scheduler = ReadingScheduler::new(hyper_pattern_matching, multi_stream_reader);
+            let mut reading_scheduler =
+                ReadingScheduler::new(hyper_pattern_matching, multi_stream_reader);
             reading_scheduler.run();
-        },
+        }
     }
 
     info!("Hyper Pattern Matching completed successfully");

@@ -75,7 +75,7 @@ mod tests {
     use crate::automata_runner::AppendOnlySequence;
     use crate::hyper_pattern_matching::OnlineHyperPatternMatching;
     use crate::multi_stream_reader::StreamSource;
-    use crate::result_notifier::{SharedBufferResultNotifier, MatchingResult, MatchingInterval};
+    use crate::result_notifier::{MatchingInterval, MatchingResult, SharedBufferResultNotifier};
     use crate::shared_buffer::{SharedBuffer, SharedBufferSource};
     use std::collections::HashSet;
     use typed_arena::Arena;
@@ -140,47 +140,29 @@ mod tests {
         }
 
         assert_eq!(results.len(), 6);
-        assert!(results.contains(
-            &MatchingResult {
-                intervals: vec![
-                    MatchingInterval::new(0, 2),
-                    MatchingInterval::new(1, 1)
-                ],
-                ids: vec![0, 1]}));
-        assert!(results.contains(
-            &MatchingResult {
-                intervals: vec![
-                    MatchingInterval::new(1, 2),
-                    MatchingInterval::new(1, 1)
-                ],
-                ids: vec![0, 1]}));
-        assert!(results.contains(
-            &MatchingResult {
-                intervals: vec![
-                    MatchingInterval::new(2, 2),
-                    MatchingInterval::new(1, 1)
-                ],
-                ids: vec![0, 1]}));
-        assert!(results.contains(
-            &MatchingResult {
-                intervals: vec![
-                    MatchingInterval::new(0, 2),
-                    MatchingInterval::new(2, 2)
-                ],
-                ids: vec![0, 1]}));
-        assert!(results.contains(
-            &MatchingResult {
-                intervals: vec![
-                    MatchingInterval::new(1, 2),
-                    MatchingInterval::new(2, 2)
-                ],
-                ids: vec![0, 1]}));
-        assert!(results.contains(
-            &MatchingResult {
-                intervals: vec![
-                    MatchingInterval::new(2, 2),
-                    MatchingInterval::new(2, 2)
-                ],
-                ids: vec![0, 1]}));
+        assert!(results.contains(&MatchingResult {
+            intervals: vec![MatchingInterval::new(0, 2), MatchingInterval::new(1, 1)],
+            ids: vec![0, 1]
+        }));
+        assert!(results.contains(&MatchingResult {
+            intervals: vec![MatchingInterval::new(1, 2), MatchingInterval::new(1, 1)],
+            ids: vec![0, 1]
+        }));
+        assert!(results.contains(&MatchingResult {
+            intervals: vec![MatchingInterval::new(2, 2), MatchingInterval::new(1, 1)],
+            ids: vec![0, 1]
+        }));
+        assert!(results.contains(&MatchingResult {
+            intervals: vec![MatchingInterval::new(0, 2), MatchingInterval::new(2, 2)],
+            ids: vec![0, 1]
+        }));
+        assert!(results.contains(&MatchingResult {
+            intervals: vec![MatchingInterval::new(1, 2), MatchingInterval::new(2, 2)],
+            ids: vec![0, 1]
+        }));
+        assert!(results.contains(&MatchingResult {
+            intervals: vec![MatchingInterval::new(2, 2), MatchingInterval::new(2, 2)],
+            ids: vec![0, 1]
+        }));
     }
 }

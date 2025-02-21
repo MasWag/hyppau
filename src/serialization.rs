@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::{collections::{HashMap, HashSet, VecDeque}, fmt::Debug};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    fmt::Debug,
+};
 use typed_arena::Arena;
 
 // Import your NFA types from automata.rs
@@ -56,8 +59,11 @@ pub fn serialize_nfa<'a, L: Serialize + Clone>(automata: &Automata<'a, L>) -> St
     }
 
     // Create a set of initial state pointers for easy lookup.
-    let initial_ptrs: HashSet<*const State<'a, L>> =
-        automata.initial_states.iter().map(|s| *s as *const State<'a, L>).collect();
+    let initial_ptrs: HashSet<*const State<'a, L>> = automata
+        .initial_states
+        .iter()
+        .map(|s| *s as *const State<'a, L>)
+        .collect();
 
     // Build the vector of serialized states.
     let mut states_vec = Vec::new();
@@ -131,10 +137,9 @@ pub fn deserialize_nfa<'a, L: Deserialize<'a> + TransitionCost + ValidLabel>(
 
     // Add transitions using the id-to-state mapping.
     for t in ser.transitions {
-        let from_state = id_to_state[t.from]
-            .expect(&format!("Invalid 'from' state id: {}", t.from));
-        let to_state = id_to_state[t.to]
-            .expect(&format!("Invalid 'to' state id: {}", t.to));
+        let from_state =
+            id_to_state[t.from].expect(&format!("Invalid 'from' state id: {}", t.from));
+        let to_state = id_to_state[t.to].expect(&format!("Invalid 'to' state id: {}", t.to));
         automata.add_transition(from_state, t.label, to_state);
     }
 
@@ -146,7 +151,7 @@ pub fn deserialize_nfa<'a, L: Deserialize<'a> + TransitionCost + ValidLabel>(
 /// Each state is assigned a unique identifier (based on a BFS from the initial states).
 /// Final states are drawn with a `doublecircle` shape, while non-final states use a `circle`.
 /// An invisible __start__ node points to all initial states.
-pub fn automaton_to_dot<'a, L: Debug> (automata: &Automata<'a, L>) -> String {
+pub fn automaton_to_dot<'a, L: Debug>(automata: &Automata<'a, L>) -> String {
     // Map each state's pointer to a unique id and store the state pointers.
     let mut state_ids: HashMap<*const State<'a, L>, usize> = HashMap::new();
     let mut id_to_state: Vec<&State<'a, L>> = Vec::new();
@@ -190,8 +195,15 @@ pub fn automaton_to_dot<'a, L: Debug> (automata: &Automata<'a, L>) -> String {
     // Define nodes.
     for (id, state) in id_to_state.iter().enumerate() {
         // Use doublecircle for final states.
-        let shape = if state.is_final { "doublecircle" } else { "circle" };
-        dot.push_str(&format!("  state{} [label=\"State {}\", shape={}];\n", id, id, shape));
+        let shape = if state.is_final {
+            "doublecircle"
+        } else {
+            "circle"
+        };
+        dot.push_str(&format!(
+            "  state{} [label=\"State {}\", shape={}];\n",
+            id, id, shape
+        ));
     }
 
     // Define edges for transitions.

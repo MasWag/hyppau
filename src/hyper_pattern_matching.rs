@@ -62,7 +62,9 @@ impl<'a> PatternMatchingAutomataRunner<'a> {
     }
 }
 
-impl<'a> NFAHRunner<'a, PatternMatchingAutomataConfiguration<'a>> for PatternMatchingAutomataRunner<'a> {
+impl<'a> NFAHRunner<'a, PatternMatchingAutomataConfiguration<'a>>
+    for PatternMatchingAutomataRunner<'a>
+{
     /// Inserts a new configuration into the `HashSet`. Duplicate configurations
     /// (i.e., those that are `Eq`) will be automatically skipped.
     fn insert(&mut self, configuration: PatternMatchingAutomataConfiguration<'a>) {

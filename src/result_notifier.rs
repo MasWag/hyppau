@@ -36,14 +36,14 @@ impl MatchingResult {
 ///
 /// The matching intervals are provided as slices, where each interval corresponds to an identifier in the `ids` slice.
 /// For example, if you call:
-/// 
+///
 /// ```rust
 /// notifier.notify(
 ///     &[MatchingInterval::new(1, 2), MatchingInterval::new(3, 4)],
 ///     &[0, 1]
 /// );
 /// ```
-/// 
+///
 /// it represents two matches: id 0 with interval (1, 2) and id 1 with interval (3, 4).
 pub trait ResultNotifier {
     /// Notifies matching results, given slices of intervals and their corresponding identifiers.
