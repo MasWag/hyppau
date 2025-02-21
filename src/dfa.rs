@@ -1,0 +1,370 @@
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
+use std::hash::{DefaultHasher, Hash, Hasher};
+
+/// A Deterministic Finite Automaton (DFA) over alphabet `A` with states of type `S`.
+#[derive(Debug, Clone)]
+pub struct DFA<S, A> {
+    /// All states in the DFA.
+    pub states: HashSet<S>,
+    /// The input alphabet symbols recognized by this DFA.
+    pub alphabet: HashSet<A>,
+    /// The unique initial state.
+    pub initial: S,
+    /// A set of accepting (final) states.
+    pub finals: HashSet<S>,
+    /// The transition function: given (current_state, symbol) → next_state.
+    /// Must be deterministic, so there should be at most one outcome for each pair.
+    pub transitions: HashMap<(S, A), S>,
+}
+
+impl<S, A> DFA<S, A>
+where
+    S: Eq + Hash + Clone,
+    A: Eq + Hash + Clone + Debug,
+{
+    /// Creates a new DFA, specifying:
+    /// - The initial state
+    /// - The DFA alphabet
+    ///
+    /// Initially, the DFA has only the initial state, which is not final. You can add
+    /// more states, transitions, and final states as needed.
+    pub fn new(initial: S, alphabet: HashSet<A>) -> Self {
+        let mut states = HashSet::new();
+        states.insert(initial.clone());
+
+        DFA {
+            states,
+            alphabet,
+            initial,
+            finals: HashSet::new(),
+            transitions: HashMap::new(),
+        }
+    }
+
+    /// Adds a new state to the DFA. By default, it's not marked as final.
+    /// Returns `true` if the state was newly inserted, or `false` if it already existed.
+    pub fn add_state(&mut self, s: S) -> bool {
+        self.states.insert(s)
+    }
+
+    /// Marks the given state as an accepting (final) state.
+    /// If the state does not exist yet, we insert it as well.
+    pub fn set_final(&mut self, s: S) {
+        self.states.insert(s.clone());
+        self.finals.insert(s);
+    }
+
+    /// Adds a transition to the DFA: from state `from` on symbol `sym` to state `to`.
+    /// If `from` or `to` do not exist in the DFA, we add them automatically.
+    /// Panics if `sym` is not in the alphabet.
+    pub fn add_transition(&mut self, from: S, sym: A, to: S) {
+        if !self.alphabet.contains(&sym) {
+            panic!("Symbol {:?} not in DFA alphabet!", sym);
+        }
+
+        // Ensure states are present
+        self.states.insert(from.clone());
+        self.states.insert(to.clone());
+
+        // Insert deterministic transition
+        // Overwriting an existing transition is possible if you want to redefine
+        // but typically you'd check for duplicates if that’s disallowed.
+        self.transitions.insert((from, sym), to);
+    }
+
+    /// Tests whether the DFA accepts the given input word.
+    pub fn accepts(&self, input: &[A]) -> bool {
+        // Start at the initial state
+        let mut current_state = self.initial.clone();
+
+        // Consume the input
+        for sym in input {
+            // If no transition is defined, the DFA rejects
+            match self.transitions.get(&(current_state.clone(), sym.clone())) {
+                Some(next_st) => {
+                    current_state = next_st.clone();
+                }
+                None => {
+                    return false; // no valid transition => reject
+                }
+            }
+        }
+
+        // After consuming the entire word, check if we're in a final state
+        self.finals.contains(&current_state)
+    }
+}
+
+/// A simple wrapper around `HashSet<S>` that implements `Hash` in a canonical way.
+/// We do this so we can store `StateSet<S>` as keys in a HashMap/HashSet.
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct StateSet<S: Hash + Eq>(pub HashSet<S>);
+
+impl<S: Eq + Hash> Hash for StateSet<S> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Strategy: create a list of per-element hashes, sort them, then feed them into `state`.
+        // This ensures that the iteration order does not affect the final hash.
+        let mut element_hashes: Vec<u64> = self
+            .0
+            .iter()
+            .map(|elem| {
+                let mut hasher = DefaultHasher::new();
+                elem.hash(&mut hasher);
+                hasher.finish()
+            })
+            .collect();
+
+        element_hashes.sort_unstable();
+        for h in element_hashes {
+            h.hash(state);
+        }
+    }
+}
+
+/// A reversed version of a DFA can be considered an NFA:
+///   - `initials` are the old finals
+///   - `finals` is the old initial
+///   - transitions are reversed: for each (p, a) -> q in the DFA,
+///     we have (q, a) -> p in the reversed NFA.
+#[derive(Debug, Clone)]
+struct ReversedNFA<S, A> {
+    states: HashSet<S>,
+    alphabet: HashSet<A>,
+    initials: HashSet<S>,
+    finals: HashSet<S>,
+    transitions: HashMap<(S, A), HashSet<S>>,
+}
+
+impl<S, A> DFA<S, A>
+where
+    S: Eq + Hash + Clone,
+    A: Eq + Hash + Clone,
+{
+    /// Build an NFA that is the reverse of this DFA:
+    ///   - new initial states = old finals
+    ///   - new final states = { old initial }
+    ///   - for each (p, a)->q in the DFA, we add (q, a)->p in the NFA.
+    fn to_reversed_nfa(&self) -> ReversedNFA<S, A> {
+        let mut transitions: HashMap<(S, A), HashSet<S>> = HashMap::new();
+
+        // Reverse each transition
+        for ((from, sym), to) in &self.transitions {
+            transitions
+                .entry((to.clone(), sym.clone()))
+                .or_default()
+                .insert(from.clone());
+        }
+
+        ReversedNFA {
+            states: self.states.clone(),
+            alphabet: self.alphabet.clone(),
+            initials: self.finals.clone(), // old finals become new initials
+            finals: {
+                let mut f = HashSet::new();
+                f.insert(self.initial.clone()); // old initial becomes new final
+                f
+            },
+            transitions,
+        }
+    }
+}
+
+impl<S, A> ReversedNFA<S, A>
+where
+    S: Eq + Hash + Clone,
+    A: Eq + Hash + Clone + Debug,
+{
+    fn determinize(&self) -> DFA<StateSet<S>, A> {
+        let alphabet: Vec<A> = self.alphabet.iter().cloned().collect();
+
+        // 1) Build the new DFA with initial subset
+        let init_subset = StateSet(self.initials.clone());
+        let mut dfa = DFA::new(init_subset.clone(), self.alphabet.clone());
+
+        // check finals
+        if !self.finals.is_disjoint(&init_subset.0) {
+            dfa.set_final(init_subset.clone());
+        }
+
+        // BFS
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(init_subset.clone());
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(init_subset);
+
+        while let Some(current_subset) = queue.pop_front() {
+            // Instead of `for sym in &dfa.alphabet { ... }`, use the local `alphabet`.
+            for sym in &alphabet {
+                let mut next_set = std::collections::HashSet::new();
+                // gather transitions
+                for s in &current_subset.0 {
+                    if let Some(targets) = self.transitions.get(&(s.clone(), sym.clone())) {
+                        for t in targets {
+                            next_set.insert(t.clone());
+                        }
+                    }
+                }
+                if next_set.is_empty() {
+                    continue;
+                }
+                let next_subset = StateSet(next_set);
+                if !visited.contains(&next_subset) {
+                    visited.insert(next_subset.clone());
+                    if !self.finals.is_disjoint(&next_subset.0) {
+                        dfa.set_final(next_subset.clone());
+                    }
+                    queue.push_back(next_subset.clone());
+                }
+                dfa.add_transition(current_subset.clone(), sym.clone(), next_subset);
+            }
+        }
+
+        dfa
+    }
+}
+
+impl<S, A> DFA<S, A>
+where
+    S: Eq + Hash + Clone,
+    A: Eq + Hash + Clone + Debug,
+{
+    /// Minimizes this DFA using Brzozowski's algorithm.
+    ///
+    /// 1) Reverse (to NFA)
+    /// 2) Determinize -> dfa1
+    /// 3) Reverse dfa1 (to NFA)
+    /// 4) Determinize -> final minimal dfa
+    pub fn minimize_brzozowski(&self) -> DFA<impl Eq + Hash + Clone, A> {
+        // Step 1: Reverse original -> NFA
+        let rev_nfa = self.to_reversed_nfa();
+        // Step 2: Determinize -> intermediate DFA
+        let dfa1 = rev_nfa.determinize();
+
+        // Step 3: Reverse dfa1 -> NFA
+        let rev_nfa2 = dfa1.to_reversed_nfa();
+        // Step 4: Determinize -> minimal DFA
+        let dfa2 = rev_nfa2.determinize();
+        dfa2
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn test_dfa_accepts_ends_in_one() {
+        // We'll define states as simple integers: 0 => "last bit was 0", 1 => "last bit was 1".
+        // But conceptually, the "meaning" is "the last bit we read was 0 or 1"?
+        // Actually, we can do "0 => ended in 0, 1 => ended in 1".
+        //
+        // We'll accept binary strings that end in '1'. So state "1" is final, "0" is not final.
+
+        let mut alphabet = HashSet::new();
+        alphabet.insert('0');
+        alphabet.insert('1');
+
+        // Create a new DFA, with initial state = 0, alphabet = { '0', '1' }.
+        let mut dfa = DFA::new(0, alphabet);
+
+        // Add the second state, which we'll call "1".
+        dfa.add_state(1);
+
+        // Mark "1" as a final state
+        dfa.set_final(1);
+
+        // Add transitions:
+        // from state 0 on '0' -> 0, on '1' -> 1
+        dfa.add_transition(0, '0', 0);
+        dfa.add_transition(0, '1', 1);
+
+        // from state 1 on '0' -> 0, on '1' -> 1
+        dfa.add_transition(1, '0', 0);
+        dfa.add_transition(1, '1', 1);
+
+        // Now let's test some strings
+        // "" (empty) => ends in 0 by default? Actually, we start in state 0, which is not final => reject
+        assert_eq!(dfa.accepts(&[]), false);
+
+        // "1" => state transitions: 0 --'1'--> 1 => final => accept
+        assert_eq!(dfa.accepts(&['1']), true);
+
+        // "0" => 0 --'0'--> 0 => not final => reject
+        assert_eq!(dfa.accepts(&['0']), false);
+
+        // "10110" => let's see:
+        //   start: 0
+        //   read '1': 0->1
+        //   read '0': 1->0
+        //   read '1': 0->1
+        //   read '1': 1->1
+        //   read '0': 1->0
+        // end in state 0 => not final => reject
+        assert_eq!(dfa.accepts(&['1', '0', '1', '1', '0']), false);
+
+        // "10111" => ends with '1'
+        //  same steps, but last input is '1':
+        //   1->1 -> we remain in state 1 => final => accept
+        assert_eq!(dfa.accepts(&['1', '0', '1', '1', '1']), true);
+    }
+
+    #[test]
+    fn test_brzozowski_minimization() {
+        // We'll define a DFA over {0,1} that accepts
+        // all binary strings containing "11" as a substring.
+        //
+        // States (conceptual):
+        //  S0 = have seen nothing or no '1' last
+        //  S1 = last bit was '1' but haven't seen "11" yet
+        //  S2 = have seen "11" (accepting)
+        //
+        // Transitions:
+        //  S0 --'0'--> S0
+        //  S0 --'1'--> S1
+        //  S1 --'0'--> S0
+        //  S1 --'1'--> S2
+        //  S2 --'0'--> S2  (once we've seen "11", we stay accepted)
+        //  S2 --'1'--> S2
+
+        let mut sigma = HashSet::new();
+        sigma.insert('0');
+        sigma.insert('1');
+
+        let mut dfa = DFA::new("S0".to_string(), sigma);
+
+        dfa.add_state("S1".to_string());
+        dfa.add_state("S2".to_string());
+
+        dfa.set_final("S2".to_string());
+
+        dfa.add_transition("S0".to_string(), '0', "S0".to_string());
+        dfa.add_transition("S0".to_string(), '1', "S1".to_string());
+        dfa.add_transition("S1".to_string(), '0', "S0".to_string());
+        dfa.add_transition("S1".to_string(), '1', "S2".to_string());
+        dfa.add_transition("S2".to_string(), '0', "S2".to_string());
+        dfa.add_transition("S2".to_string(), '1', "S2".to_string());
+
+        // Check a couple of examples
+        assert_eq!(dfa.accepts(&['0', '0', '1', '0']), false); // no "11"
+        assert_eq!(dfa.accepts(&['1', '1']), true); // "11" found
+        assert_eq!(dfa.accepts(&['1', '0', '1', '1', '0']), true); // "11" found
+        assert_eq!(dfa.accepts(&['0', '1', '0', '1', '0']), false); // no "11"
+
+        // Minimization with Brzozowski:
+        let minimized = dfa.minimize_brzozowski();
+
+        // The minimized machine should still accept "11" and only that pattern,
+        // but typically with fewer (or same) states if any were redundant.
+        assert_eq!(minimized.accepts(&['0', '0', '1', '0']), false);
+        assert_eq!(minimized.accepts(&['1', '1']), true);
+        assert_eq!(minimized.accepts(&['1', '0', '1', '1', '0']), true);
+        assert_eq!(minimized.accepts(&['0', '1', '0', '1', '0']), false);
+
+        // You can optionally print or debug the minimized DFA states
+        // println!("Minimized states: {:?}", minimized.states);
+        // println!("Minimized transitions: {:?}", minimized.transitions);
+        // Typically it might produce 3 states anyway for this language, or fewer if merges are possible.
+    }
+}

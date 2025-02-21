@@ -71,6 +71,7 @@ struct Args {
 
 mod automata;
 mod automata_runner;
+mod dfa;
 mod hyper_pattern_matching;
 mod multi_stream_reader;
 mod naive_hyper_pattern_matching;

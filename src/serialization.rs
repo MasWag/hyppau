@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    fmt::Debug, hash::Hash,
+    fmt::Debug,
+    hash::Hash,
 };
 use typed_arena::Arena;
 
