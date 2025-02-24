@@ -11,7 +11,7 @@ pub struct Transition<'a, L> {
     pub next_state: &'a State<'a, L>,
 }
 
-impl<'a, L: Hash> Hash for Transition<'a, L> {
+impl<L: Hash> Hash for Transition<'_, L> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.label.hash(state);
         self.next_state.hash(state);
@@ -34,22 +34,22 @@ pub struct State<'a, L> {
     pub is_final: bool,
 }
 
-impl<'a, L> PartialEq for State<'a, L> {
+impl<L> PartialEq for State<'_, L> {
     fn eq(&self, other: &Self) -> bool {
         // States compared by their pointer address.
         std::ptr::eq(self, other)
     }
 }
 
-impl<'a, L> Eq for State<'a, L> {}
+impl<L> Eq for State<'_, L> {}
 
-impl<'a, L> Debug for State<'a, L> {
+impl<L> Debug for State<'_, L> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "State({:p}, is_final: {})", self, self.is_final)
     }
 }
 
-impl<'a, L> Hash for State<'a, L> {
+impl<L> Hash for State<'_, L> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Simple hash based on the pointer.
         state.write_usize(self as *const _ as usize);
@@ -314,7 +314,7 @@ impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
     }
 }
 
-impl<'a, L> Automata<'a, L> {
+impl<L> Automata<'_, L> {
     /// Returns `true` if this automaton's language is empty
     /// (i.e., if no final state can be reached from any initial state).
     /// Otherwise, returns `false`.
@@ -400,7 +400,7 @@ impl<'a, L> AutomataStateIter<'a, L> {
     pub fn new(automata: &'a Automata<'a, L>) -> Self {
         Self {
             seen: HashSet::new(),
-            queue: automata.initial_states.iter().map(|&state| state).collect(),
+            queue: automata.initial_states.iter().copied().collect(),
         }
     }
 }
@@ -409,36 +409,33 @@ impl<'a, L: Clone> Iterator for AutomataStateIter<'a, L> {
     type Item = &'a State<'a, L>;
     fn next(&mut self) -> Option<Self::Item> {
         let next_state = self.queue.pop_front();
-        match next_state {
-            Some(next) => {
-                self.seen.insert(next as *const _);
-                next.transitions.borrow().iter().for_each(|transition| {
-                    if !self.seen.contains(&((transition.next_state) as *const _)) {
-                        self.queue.push_back(&transition.next_state)
-                    }
-                });
-            }
-            None => {}
+        if let Some(next) = next_state {
+            self.seen.insert(next as *const _);
+            next.transitions.borrow().iter().for_each(|transition| {
+                if !self.seen.contains(&((transition.next_state) as *const _)) {
+                    self.queue.push_back(transition.next_state)
+                }
+            });
         }
 
-        return next_state;
+        next_state
     }
 }
 
-impl<'a, L> PartialEq for Automata<'a, L> {
+impl<L> PartialEq for Automata<'_, L> {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self, other)
     }
 }
-impl<'a, L> Eq for Automata<'a, L> {}
+impl<L> Eq for Automata<'_, L> {}
 
-impl<'a, L> Hash for Automata<'a, L> {
+impl<L> Hash for Automata<'_, L> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Just hash based on the pointer to self’s initial_states for simplicity
         self.initial_states.hash(state);
     }
 }
-impl<'a, L> Debug for Automata<'a, L> {
+impl<L> Debug for Automata<'_, L> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "NFAH({:p})", self)
     }
@@ -495,9 +492,9 @@ impl<'a> NFAH<'a> {
                 let old_next = trans.next_state as *const _;
 
                 // If next not seen, add
-                if !old_to_new.contains_key(&old_next) {
+                if let std::collections::hash_map::Entry::Vacant(e) = old_to_new.entry(old_next) {
                     let new_next = projected.add_state(false, is_final(trans.next_state));
-                    old_to_new.insert(old_next, new_next);
+                    e.insert(new_next);
                     queue.push_back(trans.next_state);
                 }
                 let new_next = old_to_new[&old_next];
@@ -587,11 +584,9 @@ impl<'a> EpsilonNFA<'a> {
         while let Some(st) = queue.pop_front() {
             // For every None (ε) transition out of st, add that state to closure
             for &trans in st.transitions.borrow().iter() {
-                if trans.label.is_none() {
-                    if !closure.contains(&trans.next_state) {
-                        closure.insert(trans.next_state);
-                        queue.push_back(trans.next_state);
-                    }
+                if trans.label.is_none() && !closure.contains(&trans.next_state) {
+                    closure.insert(trans.next_state);
+                    queue.push_back(trans.next_state);
                 }
             }
         }
@@ -651,7 +646,7 @@ impl<'a> EpsilonNFA<'a> {
                 .iter()
                 .map(|s| *s as *const State<'x, Option<String>>)
                 .collect::<Vec<*const State<'x, Option<String>>>>();
-            addrs.sort_by(|a: &*const _, b: &*const _| a.cmp(b));
+            addrs.sort();
             addrs
         }
 
@@ -1168,7 +1163,7 @@ mod tests {
         let s1_1 = nfa1.add_state(false, true); // final
         nfa1.add_transition(s0_1, "a".to_string(), s1_1);
 
-        assert_eq!(nfa1.is_empty(), false, "There is a path to a final state.");
+        assert!(!nfa1.is_empty(), "There is a path to a final state.");
 
         // =========== CASE 2: No final states at all ===========
         let arena_s2 = Arena::new();
@@ -1179,7 +1174,7 @@ mod tests {
         let s1_2 = nfa2.add_state(false, false);
         nfa2.add_transition(s0_2, "b".to_string(), s1_2);
         // No state is final here
-        assert_eq!(nfa2.is_empty(), true, "No final state => empty language.");
+        assert!(nfa2.is_empty(), "No final state => empty language.");
 
         // =========== CASE 3: Final but unreachable ===========
         let arena_s3 = Arena::new();
@@ -1191,9 +1186,8 @@ mod tests {
         let s2_3 = nfa3.add_state(false, true); // final but not connected
 
         // s0_3 has no outgoing transitions at all. So s2_3 is unreachable.
-        assert_eq!(
+        assert!(
             nfa3.is_empty(),
-            true,
             "Final state is unreachable => empty language."
         );
     }
@@ -1266,9 +1260,8 @@ mod tests {
         //   - NFA1: s0->s1->s2 with "a","b"  (or s0->s0->s0->...->s1->s2 if multiple 'a's)
         //   - NFA2: p0->p1->p2 with "a","b"
         // => The product language is definitely non-empty
-        assert_eq!(
-            product_nfa.is_empty(),
-            false,
+        assert!(
+            !product_nfa.is_empty(),
             "They both accept 'ab', so intersection is not empty."
         );
 

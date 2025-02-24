@@ -1,24 +1,8 @@
-use itertools::{Itertools, Product};
+use itertools::Itertools;
 use std::collections::{HashMap, HashSet, VecDeque};
 use typed_arena::Arena;
 
-use crate::automata::{NFAHState, NFAState, NFAH};
-
-pub trait VectorWithVer<T> {
-    fn project(&self, variable: usize) -> Vec<T>;
-}
-
-impl<T> VectorWithVer<T> for Vec<(T, usize)>
-where
-    T: Clone,
-{
-    fn project(&self, variable: usize) -> Vec<T> {
-        self.iter()
-            .filter(|(_, var)| *var == variable)
-            .map(|(val, _)| val.clone())
-            .collect()
-    }
-}
+use crate::automata::{NFAHState, NFAH};
 
 pub struct KMPSkipValues<'a> {
     // seen: HashSet<*const NFAHState<'a>>,

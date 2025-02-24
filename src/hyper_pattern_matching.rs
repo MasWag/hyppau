@@ -94,7 +94,7 @@ impl<'a> NFAHRunner<'a, PatternMatchingAutomataConfiguration<'a>>
         let mut ids = vec![];
         for sequence in &input_sequence {
             for i in 0..self.views.len() {
-                if self.views[i].same_data(&sequence) {
+                if self.views[i].same_data(sequence) {
                     ids.push(i);
                     break;
                 }
@@ -247,9 +247,7 @@ impl<'a, Notifier: ResultNotifier> OnlineHyperPatternMatching<'a, Notifier> {
     }
 }
 
-impl<'a, Notifier: ResultNotifier> HyperPatternMatching
-    for OnlineHyperPatternMatching<'a, Notifier>
-{
+impl<Notifier: ResultNotifier> HyperPatternMatching for OnlineHyperPatternMatching<'_, Notifier> {
     fn feed(&mut self, action: &str, track: usize) {
         self.sequences[track].append(action.to_string());
         self.read_size[track] += 1;
@@ -310,14 +308,14 @@ mod tests {
         automata.add_nfah_transition(s1, "c".to_string(), 0, s13);
         automata.add_nfah_transition(s13, "d".to_string(), 1, s3);
 
-        let mut sequences = vec![AppendOnlySequence::new(), AppendOnlySequence::new()];
+        let mut sequences = [AppendOnlySequence::new(), AppendOnlySequence::new()];
         sequences[0].append("a".to_string());
         sequences[1].append("b".to_string());
         sequences[0].append("c".to_string());
         sequences[1].append("d".to_string());
 
         let config = PatternMatchingAutomataConfiguration::new(
-            &s1,
+            s1,
             sequences.iter().map(|s| s.readable_view()).collect(),
             vec![0, 1],
         );
@@ -372,7 +370,7 @@ mod tests {
         automata.add_nfah_transition(s1, "c".to_string(), 0, s13);
         automata.add_nfah_transition(s13, "d".to_string(), 1, s3);
 
-        let mut sequences = vec![AppendOnlySequence::new(), AppendOnlySequence::new()];
+        let mut sequences = [AppendOnlySequence::new(), AppendOnlySequence::new()];
         sequences[0].append("a".to_string());
         sequences[1].append("b".to_string());
         sequences[0].append("c".to_string());

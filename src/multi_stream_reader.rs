@@ -74,7 +74,7 @@ impl MultiStreamReader {
 
         let mut reader = reader.lock().unwrap(); // Acquire mutable access
         match reader.fill_buf() {
-            Ok(buf) => Ok(buf.len() > 0), // Data available
+            Ok(buf) => Ok(!buf.is_empty()), // Data available
             Err(_) => Ok(false),
         }
     }

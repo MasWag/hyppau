@@ -24,7 +24,7 @@ impl StartPosition {
             });
         }
 
-        return result;
+        result
     }
 }
 
@@ -52,7 +52,7 @@ impl<'a, Notifier: ResultNotifier> NaiveHyperPatternMatching<'a, Notifier> {
         let successors = StartPosition { start_indices }
             .immediate_successors()
             .into_iter()
-            .map(|p| Reverse(p))
+            .map(Reverse)
             .collect_vec();
         let ranges = vec![0..sequences.len(); automaton.dimensions];
         let ids = ranges.into_iter().multi_cartesian_product().collect_vec();
@@ -92,9 +92,7 @@ impl<'a, Notifier: ResultNotifier> NaiveHyperPatternMatching<'a, Notifier> {
     }
 }
 
-impl<'a, Notifier: ResultNotifier> HyperPatternMatching
-    for NaiveHyperPatternMatching<'a, Notifier>
-{
+impl<Notifier: ResultNotifier> HyperPatternMatching for NaiveHyperPatternMatching<'_, Notifier> {
     fn feed(&mut self, action: &str, track: usize) {
         self.sequences[track].append(action.to_string());
         self.read_size[track] += 1;
@@ -157,7 +155,7 @@ impl<'a, Notifier: ResultNotifier> HyperPatternMatching
     }
 
     fn consume_remaining(&mut self) {
-        while self.waiting_queues.values().any(|f| f.len() > 0) {
+        while self.waiting_queues.values().any(|f| !f.is_empty()) {
             self.automata_runner.consume();
             let final_configurations = self.automata_runner.get_final_configurations();
             let dimensions = self.dimensions();

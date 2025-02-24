@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fmt::Debug,
@@ -139,8 +138,9 @@ pub fn deserialize_nfa<'a, L: Deserialize<'a> + Eq + Hash + Clone + ValidLabel>(
     // Add transitions using the id-to-state mapping.
     for t in ser.transitions {
         let from_state =
-            id_to_state[t.from].expect(&format!("Invalid 'from' state id: {}", t.from));
-        let to_state = id_to_state[t.to].expect(&format!("Invalid 'to' state id: {}", t.to));
+            id_to_state[t.from].unwrap_or_else(|| panic!("Invalid 'from' state id: {}", t.from));
+        let to_state =
+            id_to_state[t.to].unwrap_or_else(|| panic!("Invalid 'to' state id: {}", t.to));
         automata.add_transition(from_state, t.label, to_state);
     }
 
@@ -161,8 +161,8 @@ pub fn automaton_to_dot<'a, L: Debug>(automata: &Automata<'a, L>) -> String {
     // Enqueue initial states.
     for &state in &automata.initial_states {
         let ptr = state as *const State<'a, L>;
-        if !state_ids.contains_key(&ptr) {
-            state_ids.insert(ptr, id_to_state.len());
+        if let std::collections::hash_map::Entry::Vacant(e) = state_ids.entry(ptr) {
+            e.insert(id_to_state.len());
             id_to_state.push(state);
             queue.push_back(state);
         }
@@ -173,8 +173,8 @@ pub fn automaton_to_dot<'a, L: Debug>(automata: &Automata<'a, L>) -> String {
         for t in state.transitions.borrow().iter() {
             let next_state = t.next_state;
             let ptr = next_state as *const State<'a, L>;
-            if !state_ids.contains_key(&ptr) {
-                state_ids.insert(ptr, id_to_state.len());
+            if let std::collections::hash_map::Entry::Vacant(e) = state_ids.entry(ptr) {
+                e.insert(id_to_state.len());
                 id_to_state.push(next_state);
                 queue.push_back(next_state);
             }

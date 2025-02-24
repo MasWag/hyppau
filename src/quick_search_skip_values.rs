@@ -96,9 +96,9 @@ impl QuickSearchSkipValues {
             panic!("Variable index out of bounds");
         }
         if self.skip_values_map[variable].contains_key(action) {
-            return self.skip_values_map[variable][action];
+            self.skip_values_map[variable][action]
         } else {
-            return self.shortest_accepted_word_length_map[variable] + 1;
+            self.shortest_accepted_word_length_map[variable] + 1
         }
     }
 }

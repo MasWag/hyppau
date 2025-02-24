@@ -244,8 +244,8 @@ where
         // Step 3: Reverse dfa1 -> NFA
         let rev_nfa2 = dfa1.to_reversed_nfa();
         // Step 4: Determinize -> minimal DFA
-        let dfa2 = rev_nfa2.determinize();
-        dfa2
+
+        rev_nfa2.determinize()
     }
 }
 
@@ -306,9 +306,9 @@ where
         for s in self.states.clone() {
             for sym in &self.alphabet {
                 let key = (s.clone(), sym.clone());
-                if !self.transitions.contains_key(&key) {
-                    self.transitions.insert(key, sink_label.clone());
-                }
+                self.transitions
+                    .entry(key)
+                    .or_insert_with(|| sink_label.clone());
             }
         }
 
@@ -357,13 +357,13 @@ mod tests {
 
         // Now let's test some strings
         // "" (empty) => ends in 0 by default? Actually, we start in state 0, which is not final => reject
-        assert_eq!(dfa.accepts(&[]), false);
+        assert!(!dfa.accepts(&[]));
 
         // "1" => state transitions: 0 --'1'--> 1 => final => accept
-        assert_eq!(dfa.accepts(&['1']), true);
+        assert!(dfa.accepts(&['1']));
 
         // "0" => 0 --'0'--> 0 => not final => reject
-        assert_eq!(dfa.accepts(&['0']), false);
+        assert!(!dfa.accepts(&['0']));
 
         // "10110" => let's see:
         //   start: 0
@@ -373,12 +373,12 @@ mod tests {
         //   read '1': 1->1
         //   read '0': 1->0
         // end in state 0 => not final => reject
-        assert_eq!(dfa.accepts(&['1', '0', '1', '1', '0']), false);
+        assert!(!dfa.accepts(&['1', '0', '1', '1', '0']));
 
         // "10111" => ends with '1'
         //  same steps, but last input is '1':
         //   1->1 -> we remain in state 1 => final => accept
-        assert_eq!(dfa.accepts(&['1', '0', '1', '1', '1']), true);
+        assert!(dfa.accepts(&['1', '0', '1', '1', '1']));
     }
 
     #[test]
@@ -418,20 +418,20 @@ mod tests {
         dfa.add_transition("S2".to_string(), '1', "S2".to_string());
 
         // Check a couple of examples
-        assert_eq!(dfa.accepts(&['0', '0', '1', '0']), false); // no "11"
-        assert_eq!(dfa.accepts(&['1', '1']), true); // "11" found
-        assert_eq!(dfa.accepts(&['1', '0', '1', '1', '0']), true); // "11" found
-        assert_eq!(dfa.accepts(&['0', '1', '0', '1', '0']), false); // no "11"
+        assert!(!dfa.accepts(&['0', '0', '1', '0'])); // no "11"
+        assert!(dfa.accepts(&['1', '1'])); // "11" found
+        assert!(dfa.accepts(&['1', '0', '1', '1', '0'])); // "11" found
+        assert!(!dfa.accepts(&['0', '1', '0', '1', '0'])); // no "11"
 
         // Minimization with Brzozowski:
         let minimized = dfa.minimize_brzozowski();
 
         // The minimized machine should still accept "11" and only that pattern,
         // but typically with fewer (or same) states if any were redundant.
-        assert_eq!(minimized.accepts(&['0', '0', '1', '0']), false);
-        assert_eq!(minimized.accepts(&['1', '1']), true);
-        assert_eq!(minimized.accepts(&['1', '0', '1', '1', '0']), true);
-        assert_eq!(minimized.accepts(&['0', '1', '0', '1', '0']), false);
+        assert!(!minimized.accepts(&['0', '0', '1', '0']));
+        assert!(minimized.accepts(&['1', '1']));
+        assert!(minimized.accepts(&['1', '0', '1', '1', '0']));
+        assert!(!minimized.accepts(&['0', '1', '0', '1', '0']));
 
         // You can optionally print or debug the minimized DFA states
         // println!("Minimized states: {:?}", minimized.states);
@@ -464,18 +464,18 @@ mod tests {
         dfa.add_transition(1, '1', 1);
 
         // quick checks
-        assert_eq!(dfa.accepts(&[]), false); // empty => state=0 => not final
-        assert_eq!(dfa.accepts(&['1']), true);
-        assert_eq!(dfa.accepts(&['0', '1']), true);
-        assert_eq!(dfa.accepts(&['1', '0', '1', '0']), false); // ends in 0
+        assert!(!dfa.accepts(&[])); // empty => state=0 => not final
+        assert!(dfa.accepts(&['1']));
+        assert!(dfa.accepts(&['0', '1']));
+        assert!(!dfa.accepts(&['1', '0', '1', '0'])); // ends in 0
 
         // Negate it
         let neg_dfa = dfa.negate();
 
         // Now everything is flipped
-        assert_eq!(neg_dfa.accepts(&[]), true); // original was false
-        assert_eq!(neg_dfa.accepts(&['1']), false);
-        assert_eq!(neg_dfa.accepts(&['0', '1']), false);
-        assert_eq!(neg_dfa.accepts(&['1', '0', '1', '0']), true);
+        assert!(neg_dfa.accepts(&[])); // original was false
+        assert!(!neg_dfa.accepts(&['1']));
+        assert!(!neg_dfa.accepts(&['0', '1']));
+        assert!(neg_dfa.accepts(&['1', '0', '1', '0']));
     }
 }

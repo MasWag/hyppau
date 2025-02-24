@@ -377,7 +377,7 @@ impl<T> ReadableView<T> {
     /// Returns `true` if this view shares the same underlying data as another
     /// ReadableView
     pub fn same_data(&self, other: &ReadableView<T>) -> bool {
-        self.data.as_ptr() as *const _ == other.data.as_ptr() as *const _
+        std::ptr::eq(self.data.as_ptr(), other.data.as_ptr())
     }
 }
 
@@ -408,8 +408,7 @@ impl<T: Eq> PartialEq for ReadableView<T> {
     /// underlying sequence (same `Rc`) and have the same `start` index.
     /// They do not compare the actual *contents* in the sequence.
     fn eq(&self, other: &Self) -> bool {
-        self.data.as_ptr() as *const _ == other.data.as_ptr() as *const _
-            && self.start == other.start
+        std::ptr::eq(self.data.as_ptr(), other.data.as_ptr()) && self.start == other.start
     }
 }
 
@@ -475,14 +474,14 @@ mod tests {
         automaton.add_nfah_transition(s1, "c".to_string(), 0, s13);
         automaton.add_nfah_transition(s13, "d".to_string(), 1, s3);
 
-        let mut sequences = vec![AppendOnlySequence::new(), AppendOnlySequence::new()];
+        let mut sequences = [AppendOnlySequence::new(), AppendOnlySequence::new()];
         sequences[0].append("a".to_string());
         sequences[1].append("b".to_string());
         sequences[0].append("c".to_string());
         sequences[1].append("d".to_string());
 
         let config = SimpleAutomataConfiguration::new(
-            &s1,
+            s1,
             sequences.iter().map(|s| s.readable_view()).collect(),
         );
 
@@ -532,7 +531,7 @@ mod tests {
         automaton.add_nfah_transition(s1, "c".to_string(), 0, s13);
         automaton.add_nfah_transition(s13, "d".to_string(), 1, s3);
 
-        let mut sequences = vec![AppendOnlySequence::new(), AppendOnlySequence::new()];
+        let mut sequences = [AppendOnlySequence::new(), AppendOnlySequence::new()];
         sequences[0].append("a".to_string());
         sequences[1].append("b".to_string());
         sequences[0].append("c".to_string());
