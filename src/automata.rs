@@ -357,6 +357,73 @@ impl<'a, L> Automata<'a, L> {
     }
 }
 
+impl<'a, L> Automata<'a, L>
+where
+    L: Clone,
+{
+    /// Returns a set of states in `dfa` that are reachable in exactly `steps` transitions
+    /// from any of dfa's initial states.
+    pub fn states_reachable_in_exactly_n_steps(&self, steps: usize) -> HashSet<&'a State<'a, L>> {
+        // We do BFS layer by layer
+        let mut current_layer: HashSet<&State<'a, L>> =
+            self.initial_states.iter().copied().collect();
+        let mut next_layer = HashSet::new();
+
+        for _ in 0..steps {
+            next_layer.clear();
+            // move from each state in current_layer by any outgoing transition
+            for st in &current_layer {
+                for &trans in st.transitions.borrow().iter() {
+                    next_layer.insert(trans.next_state);
+                }
+            }
+            std::mem::swap(&mut current_layer, &mut next_layer);
+        }
+
+        current_layer
+    }
+}
+
+impl<'a, L> Automata<'a, L> {
+    pub fn iter_states(&'a self) -> AutomataStateIter<'a, L> {
+        AutomataStateIter::new(self)
+    }
+}
+
+pub struct AutomataStateIter<'a, L> {
+    seen: HashSet<*const State<'a, L>>,
+    queue: VecDeque<&'a State<'a, L>>,
+}
+
+impl<'a, L> AutomataStateIter<'a, L> {
+    pub fn new(automata: &'a Automata<'a, L>) -> Self {
+        Self {
+            seen: HashSet::new(),
+            queue: automata.initial_states.iter().map(|&state| state).collect(),
+        }
+    }
+}
+
+impl<'a, L: Clone> Iterator for AutomataStateIter<'a, L> {
+    type Item = &'a State<'a, L>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_state = self.queue.pop_front();
+        match next_state {
+            Some(next) => {
+                self.seen.insert(next as *const _);
+                next.transitions.borrow().iter().for_each(|transition| {
+                    if !self.seen.contains(&((transition.next_state) as *const _)) {
+                        self.queue.push_back(&transition.next_state)
+                    }
+                });
+            }
+            None => {}
+        }
+
+        return next_state;
+    }
+}
+
 impl<'a, L> PartialEq for Automata<'a, L> {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self, other)
@@ -725,6 +792,33 @@ mod tests {
         assert_eq!(all_outgoing[0].label.0, "a");
         assert_eq!(all_outgoing[0].label.1, 0);
         assert_eq!(all_outgoing[0].next_state, s2);
+    }
+
+    #[test]
+    fn test_iter() {
+        let state_arena = Arena::new();
+        let trans_arena = Arena::new();
+        let mut automaton = NFAH::new(&state_arena, &trans_arena, 2);
+
+        let s0 = automaton.add_state(true, false);
+        let s1 = automaton.add_state(false, false);
+        let s2 = automaton.add_state(false, false);
+        let s3 = automaton.add_state(false, false);
+        let sf = automaton.add_state(false, true);
+
+        automaton.add_nfah_transition(s0, "c".to_string(), 0, s1);
+        automaton.add_nfah_transition(s1, "c".to_string(), 1, s2);
+        automaton.add_nfah_transition(s2, "a".to_string(), 0, s3);
+        automaton.add_nfah_transition(s3, "b".to_string(), 1, s2);
+        automaton.add_nfah_transition(s2, "c".to_string(), 0, sf);
+
+        let mut iter = automaton.iter_states();
+        assert_eq!(iter.next(), Some(s0));
+        assert_eq!(iter.next(), Some(s1));
+        assert_eq!(iter.next(), Some(s2));
+        assert_eq!(iter.next(), Some(s3));
+        assert_eq!(iter.next(), Some(sf));
+        assert_eq!(iter.next(), None);
     }
 
     #[test]
