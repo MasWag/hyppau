@@ -76,6 +76,8 @@ mod hyper_pattern_matching;
 mod kmp_skip_values;
 mod multi_stream_reader;
 mod naive_hyper_pattern_matching;
+mod nfa;
+mod nfah;
 mod quick_search_skip_values;
 mod reading_scheduler;
 mod result_notifier;

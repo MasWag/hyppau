@@ -1,4 +1,3 @@
-use crate::shared_buffer::SharedBuffer;
 use std::collections::HashMap;
 use std::io::{self, BufRead};
 use std::sync::{Arc, Mutex};
@@ -83,6 +82,7 @@ impl MultiStreamReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared_buffer::SharedBuffer;
     use std::fs::File;
     use std::io::BufReader;
     use std::io::Write;
