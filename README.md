@@ -19,7 +19,6 @@ Usage
 - **-o** *file*, **--output** *file*: Write the output to *file* instead of stdout.
 - **-m** *mode*, **--mode** *mode*: Choose the matching mode: naive, online, or fjs (default: naive)
 
-
 ### Synopsis
 
 ```bash
@@ -35,6 +34,31 @@ hyper-pattern-matching [OPTIONS] -f FILE [FILE...]
 - **-f** *file*, **--automaton** *file*: Read an automaton written in JSON format from *file*.
 - **-g**, **--graphviz**: Print the automaton in Graphviz DOT format.
 - **-o** *file*, **--output** *file*: Write the output to *file* instead of stdout.
+
+### Automaton JSON Format
+
+The JSON format for the input automaton is as follows:
+
+```json
+{
+  "dimensions": 2,
+  "states": [
+    { "id": 0, "is_initial": true, "is_final": false },
+    { "id": 1, "is_initial": false, "is_final": true },
+    { "id": 2, "is_initial": false, "is_final": false }
+  ],
+  "transitions": [
+    { "from": 0, "to": 1, "label": ["a", 0] },
+    { "from": 0, "to": 2, "label": ["b", 1] },
+    { "from": 1, "to": 2, "label": ["c", 0] },
+    { "from": 2, "to": 0, "label": ["d", 1] }
+  ]
+}
+```
+
+- **dimensions**: The number of dimensions in the automaton.
+- **states**: A list of states where each state has an `id`, a boolean indicating if it is initial (`is_initial`), and a boolean indicating if it is final (`is_final`).
+- **transitions**: A list of transitions where each transition specifies the source state (`from`), target state (`to`), and the label associated with the transition.
 
 Installation
 ------------

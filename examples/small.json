@@ -8,11 +8,11 @@
     { "id": 4, "is_initial": false, "is_final": true }
   ],
   "transitions": [
-    { "from": 0, "to": 1, "action": "a", "var": 0 },
-    { "from": 1, "to": 2, "action": "b", "var": 1 },
-    { "from": 0, "to": 0, "action": "a", "var": 0 },
-    { "from": 0, "to": 0, "action": "b", "var": 1 },
-    { "from": 0, "to": 3, "action": "c", "var": 0 },
-    { "from": 3, "to": 4, "action": "d", "var": 1 }
+    { "from": 0, "to": 1, "label": ["a", 0] },
+    { "from": 1, "to": 2, "label": ["b", 1] },
+    { "from": 0, "to": 0, "label": ["a", 0] },
+    { "from": 0, "to": 0, "label": ["b", 1] },
+    { "from": 0, "to": 3, "label": ["c", 0] },
+    { "from": 3, "to": 4, "label": ["d", 1] }
   ]
 }
