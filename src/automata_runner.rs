@@ -312,6 +312,19 @@ impl<T> AppendOnlySequence<T> {
     pub fn readable_view(&self) -> ReadableView<T> {
         ReadableView::new(Rc::clone(&self.data))
     }
+
+    pub fn len(&self) -> usize {
+        self.data.borrow().len()
+    }
+}
+
+impl<T: Clone> AppendOnlySequence<T> {
+    pub fn get(&self, index: usize) -> Option<T> {
+        match self.data.borrow().get(index) {
+            None => None,
+            Some(value) => Some(value.clone()),
+        }
+    }
 }
 
 /// A "read-only" view into part of an `AppendOnlySequence`. It keeps track of

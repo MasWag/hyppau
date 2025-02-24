@@ -31,7 +31,7 @@ impl QuickSearchSkipValues {
     /// # Returns
     ///
     /// A new `QuickSearchSkipValues` instance.
-    pub fn new(autom: NFAH) -> Self {
+    pub fn new(autom: &NFAH) -> Self {
         let shortest_length = autom.shortest_accepted_word_length();
         let accepted_prefixes = autom.accepted_prefixes(shortest_length);
         let shortest_accepted_word_length_map: Vec<usize> = (0..autom.dimensions)
@@ -54,10 +54,10 @@ impl QuickSearchSkipValues {
 
         let last_accepted_word = (0..autom.dimensions)
             .map(|var| {
-                let ind = shortest_accepted_word_length_map[var] - 1;
                 if shortest_accepted_word_length_map[var] == 0 {
                     HashSet::new()
                 } else {
+                    let ind = shortest_accepted_word_length_map[var] - 1;
                     accepted_words[var]
                         .iter()
                         .map(|word| word[ind].clone())
@@ -127,7 +127,7 @@ mod tests {
         automaton.add_nfah_transition(s3, "b".to_string(), 1, s2);
         automaton.add_nfah_transition(s2, "c".to_string(), 0, sf);
 
-        let quick_search_skip_values = QuickSearchSkipValues::new(automaton);
+        let quick_search_skip_values = QuickSearchSkipValues::new(&automaton);
         assert_eq!(
             quick_search_skip_values.shortest_accepted_word_length_map,
             vec![2, 1]
