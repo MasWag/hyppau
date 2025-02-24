@@ -73,6 +73,7 @@ mod automata;
 mod automata_runner;
 mod dfa;
 mod hyper_pattern_matching;
+mod kmp_skip_values;
 mod multi_stream_reader;
 mod naive_hyper_pattern_matching;
 mod quick_search_skip_values;

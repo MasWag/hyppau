@@ -261,7 +261,10 @@ where
         for s in &self.states {
             for sym in &self.alphabet {
                 if !self.transitions.contains_key(&(s.clone(), sym.clone())) {
-                    panic!("DFA is not complete, missing transition from {:?} on {:?}", s, sym);
+                    panic!(
+                        "DFA is not complete, missing transition from {:?} on {:?}",
+                        s, sym
+                    );
                 }
             }
         }
@@ -316,7 +319,6 @@ where
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -465,7 +467,7 @@ mod tests {
         assert_eq!(dfa.accepts(&[]), false); // empty => state=0 => not final
         assert_eq!(dfa.accepts(&['1']), true);
         assert_eq!(dfa.accepts(&['0', '1']), true);
-        assert_eq!(dfa.accepts(&['1','0','1','0']), false); // ends in 0
+        assert_eq!(dfa.accepts(&['1', '0', '1', '0']), false); // ends in 0
 
         // Negate it
         let neg_dfa = dfa.negate();
@@ -473,7 +475,7 @@ mod tests {
         // Now everything is flipped
         assert_eq!(neg_dfa.accepts(&[]), true); // original was false
         assert_eq!(neg_dfa.accepts(&['1']), false);
-        assert_eq!(neg_dfa.accepts(&['0','1']), false);
-        assert_eq!(neg_dfa.accepts(&['1','0','1','0']), true);
+        assert_eq!(neg_dfa.accepts(&['0', '1']), false);
+        assert_eq!(neg_dfa.accepts(&['1', '0', '1', '0']), true);
     }
 }
