@@ -8,6 +8,18 @@ This is the source code repository for hyper pattern matching --- A prototype to
 Usage
 -----
 
+### Options
+
+- **-h**, **--help**: Print a help message.
+- **-q**, **--quiet**: Quiet mode. Causes any results to be suppressed.
+- **-V**, **--version**: Print the version.
+- **-i** *file*, **--input** *file*: Read the log from the *file*. The i-th input file is labeled with `i` in the output.
+- **-f** *file*, **--automaton** *file*: Read an automaton written in JSON format from *file*.
+- **-g**, **--graphviz**: Print the automaton in Graphviz DOT format.
+- **-o** *file*, **--output** *file*: Write the output to *file* instead of stdout.
+- **-m** *mode*, **--mode** *mode*: Choose the matching mode: naive, online, or fjs (default: naive)
+
+
 ### Synopsis
 
 ```bash

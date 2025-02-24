@@ -34,6 +34,7 @@ use crate::reading_scheduler::ReadingScheduler;
 enum Mode {
     Naive,
     Online,
+    Fjs,
 }
 
 /// A prototype tool for Hyper Pattern Matching
@@ -207,6 +208,20 @@ fn main() {
         }
         Mode::Online => {
             let hyper_pattern_matching = OnlineHyperPatternMatching::new(
+                &automaton,
+                result_notifier,
+                args.input
+                    .into_iter()
+                    .map(|_| AppendOnlySequence::new())
+                    .collect(),
+            );
+            let mut reading_scheduler =
+                ReadingScheduler::new(hyper_pattern_matching, multi_stream_reader);
+            reading_scheduler.run();
+        }
+        Mode::Fjs => {
+            use crate::fjs_hyper_pattern_matching::FJSHyperPatternMatching;
+            let hyper_pattern_matching = FJSHyperPatternMatching::new(
                 &automaton,
                 result_notifier,
                 args.input
