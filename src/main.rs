@@ -73,6 +73,7 @@ struct Args {
 mod automata;
 mod automata_runner;
 mod dfa;
+mod dfa_earliest_pattern_matcher;
 mod fjs_hyper_pattern_matching;
 mod hyper_pattern_matching;
 mod kmp_skip_values;
