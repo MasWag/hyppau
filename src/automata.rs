@@ -94,6 +94,12 @@ impl ValidLabel for Option<String> {
     }
 }
 
+impl ValidLabel for char {
+    fn validate(&self, _dimensions: usize) {
+        // No validity check is necessary for simple letter labels.
+    }
+}
+
 pub struct Automata<'a, L> {
     /// Arena for `State` allocations.
     pub states: &'a Arena<State<'a, L>>,

@@ -1,6 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::{DefaultHasher, Hash, Hasher};
+
+use itertools::Itertools;
+use typed_arena::Arena;
+
+use crate::automata::{Automata, State, Transition, ValidLabel, NFA};
 
 /// A Deterministic Finite Automaton (DFA) over alphabet `A` with states of type `S`.
 #[derive(Debug, Clone)]
@@ -139,52 +144,72 @@ struct ReversedNFA<S, A> {
 impl<S, A> DFA<S, A>
 where
     S: Eq + Hash + Clone,
-    A: Eq + Hash + Clone,
+    A: Eq + Hash + Clone + ValidLabel + Debug,
 {
     /// Build an NFA that is the reverse of this DFA:
     ///   - new initial states = old finals
     ///   - new final states = { old initial }
     ///   - for each (p, a)->q in the DFA, we add (q, a)->p in the NFA.
-    fn to_reversed_nfa(&self) -> ReversedNFA<S, A> {
-        let mut transitions: HashMap<(S, A), HashSet<S>> = HashMap::new();
+    fn to_reversed_nfa<'a>(
+        &self,
+        states: &'a Arena<State<'a, A>>,
+        transitions: &'a Arena<Transition<'a, A>>,
+    ) -> Automata<'a, A> {
+        let mut nfa = Automata::new(states, transitions, 1);
+        let mut old_to_new = HashMap::new();
+        for state in self.states.clone() {
+            let is_final = self.initial == state;
+            let is_initial = self.finals.contains(&state);
+            old_to_new.insert(state, nfa.add_state(is_initial, is_final));
+        }
 
         // Reverse each transition
-        for ((from, sym), to) in &self.transitions {
-            transitions
-                .entry((to.clone(), sym.clone()))
-                .or_default()
-                .insert(from.clone());
+        for ((from, label), to) in &self.transitions {
+            if let Some(new_from) = old_to_new.get(to) {
+                if let Some(new_to) = old_to_new.get(from) {
+                    nfa.add_transition(new_from, label.clone(), new_to);
+                }
+            }
         }
 
-        ReversedNFA {
-            states: self.states.clone(),
-            alphabet: self.alphabet.clone(),
-            initials: self.finals.clone(), // old finals become new initials
-            finals: {
-                let mut f = HashSet::new();
-                f.insert(self.initial.clone()); // old initial becomes new final
-                f
-            },
-            transitions,
-        }
+        nfa
     }
 }
 
-impl<S, A> ReversedNFA<S, A>
+impl<'a, L> Automata<'a, L>
 where
-    S: Eq + Hash + Clone,
-    A: Eq + Hash + Clone + Debug,
+    L: Eq + Hash + Clone + ValidLabel + Debug,
 {
-    fn determinize(&self) -> DFA<StateSet<S>, A> {
-        let alphabet: Vec<A> = self.alphabet.iter().cloned().collect();
+    fn determinize(&self) -> DFA<usize, L> {
+        let mut alphabet = HashSet::new();
+        // BFS over all states to find transitions
+        let mut queue = VecDeque::new();
+        let mut visited = HashSet::new();
+        for &initial_state in &self.initial_states {
+            queue.push_back(initial_state);
+            visited.insert(initial_state as *const _);
+        }
+        while let Some(st) = queue.pop_front() {
+            for &trans in st.transitions.borrow().iter() {
+                alphabet.insert(trans.label.clone());
+                let nxt_ptr = trans.next_state as *const _;
+                if !visited.contains(&nxt_ptr) {
+                    visited.insert(nxt_ptr);
+                    queue.push_back(trans.next_state);
+                }
+            }
+        }
 
         // 1) Build the new DFA with initial subset
-        let init_subset = StateSet(self.initials.clone());
-        let mut dfa = DFA::new(init_subset.clone(), self.alphabet.clone());
+        let init_subset: StateSet<&State<'a, L>> =
+            StateSet(self.initial_states.iter().cloned().collect());
+        let mut states = HashMap::new();
+        states.insert(init_subset.clone(), 0);
+        let mut dfa = DFA::new(0, alphabet.clone().into_iter().collect());
 
         // check finals
-        if !self.finals.is_disjoint(&init_subset.0) {
-            dfa.set_final(init_subset.clone());
+        if init_subset.0.iter().any(|state| state.is_final) {
+            dfa.set_final(*states.get(&init_subset.clone()).unwrap());
         }
 
         // BFS
@@ -194,14 +219,13 @@ where
         queue.push_back(init_subset);
 
         while let Some(current_subset) = queue.pop_front() {
-            // Instead of `for sym in &dfa.alphabet { ... }`, use the local `alphabet`.
             for sym in &alphabet {
-                let mut next_set = std::collections::HashSet::new();
+                let mut next_set = HashSet::new();
                 // gather transitions
-                for s in &current_subset.0 {
-                    if let Some(targets) = self.transitions.get(&(s.clone(), sym.clone())) {
-                        for t in targets {
-                            next_set.insert(t.clone());
+                for state in &current_subset.0 {
+                    for transition in state.transitions.borrow().iter() {
+                        if transition.label == *sym {
+                            next_set.insert(transition.next_state);
                         }
                     }
                 }
@@ -211,12 +235,17 @@ where
                 let next_subset = StateSet(next_set);
                 if !visited.contains(&next_subset) {
                     visited.insert(next_subset.clone());
-                    if !self.finals.is_disjoint(&next_subset.0) {
-                        dfa.set_final(next_subset.clone());
+                    states.insert(next_subset.clone(), states.len());
+                    if next_subset.0.iter().any(|state| state.is_final) {
+                        dfa.set_final(*states.get(&next_subset).unwrap());
                     }
                     queue.push_back(next_subset.clone());
                 }
-                dfa.add_transition(current_subset.clone(), sym.clone(), next_subset);
+                dfa.add_transition(
+                    *states.get(&current_subset).unwrap(),
+                    sym.clone(),
+                    *states.get(&next_subset).unwrap(),
+                );
             }
         }
 
@@ -227,7 +256,7 @@ where
 impl<S, A> DFA<S, A>
 where
     S: Eq + Hash + Clone,
-    A: Eq + Hash + Clone + Debug,
+    A: Eq + Hash + Clone + ValidLabel + Debug,
 {
     /// Minimizes this DFA using Brzozowski's algorithm.
     ///
@@ -235,19 +264,25 @@ where
     /// 2) Determinize -> dfa1
     /// 3) Reverse dfa1 (to NFA)
     /// 4) Determinize -> final minimal dfa
-    pub fn minimize_brzozowski(&self) -> DFA<impl Eq + Hash + Clone, A> {
+    pub fn minimize_brzozowski<'a>(
+        &self,
+        state_arena: &'a Arena<State<'a, A>>,
+        trans_arena: &'a Arena<Transition<'a, A>>,
+    ) -> DFA<usize, A> {
         // Step 1: Reverse original -> NFA
-        let rev_nfa = self.to_reversed_nfa();
+        let rev_nfa = self.to_reversed_nfa(state_arena, trans_arena);
         // Step 2: Determinize -> intermediate DFA
         let dfa1 = rev_nfa.determinize();
 
-        // Step 3: Reverse dfa1 -> NFA
-        let rev_nfa2 = dfa1.to_reversed_nfa();
-        // Step 4: Determinize -> minimal DFA
+        // // Step 3: Reverse dfa1 -> NFA
+        let rev_nfa2 = dfa1.to_reversed_nfa(state_arena, trans_arena);
 
+        // // Step 4: Determinize -> minimal DFA
         rev_nfa2.determinize()
     }
 }
+
+// Remove this entire block
 
 impl<S, A> DFA<S, A>
 where
@@ -424,7 +459,9 @@ mod tests {
         assert!(!dfa.accepts(&['0', '1', '0', '1', '0'])); // no "11"
 
         // Minimization with Brzozowski:
-        let minimized = dfa.minimize_brzozowski();
+        let state_arena = Arena::new();
+        let trans_arena = Arena::new();
+        let minimized = dfa.minimize_brzozowski(&state_arena, &trans_arena);
 
         // The minimized machine should still accept "11" and only that pattern,
         // but typically with fewer (or same) states if any were redundant.
@@ -478,4 +515,44 @@ mod tests {
         assert!(!neg_dfa.accepts(&['0', '1']));
         assert!(neg_dfa.accepts(&['1', '0', '1', '0']));
     }
+}
+
+#[test]
+fn test_dfa_negation() {
+    // We'll define a complete DFA for "ends in 1"
+    let mut sigma = HashSet::new();
+    sigma.insert('0');
+    sigma.insert('1');
+
+    // initial = 0 => "ends in 0"
+    // we also have state 1 => "ends in 1"
+    let mut dfa = DFA::new(0, sigma);
+
+    dfa.add_state(1);
+    dfa.set_final(1);
+
+    // transitions (complete):
+    //   0 --'0'--> 0
+    //   0 --'1'--> 1
+    //   1 --'0'--> 0
+    //   1 --'1'--> 1
+    dfa.add_transition(0, '0', 0);
+    dfa.add_transition(0, '1', 1);
+    dfa.add_transition(1, '0', 0);
+    dfa.add_transition(1, '1', 1);
+
+    // quick checks
+    assert!(!dfa.accepts(&[])); // empty => state=0 => not final
+    assert!(dfa.accepts(&['1']));
+    assert!(dfa.accepts(&['0', '1']));
+    assert!(!dfa.accepts(&['1', '0', '1', '0'])); // ends in 0
+
+    // Negate it
+    let neg_dfa = dfa.negate();
+
+    // Now everything is flipped
+    assert!(neg_dfa.accepts(&[])); // original was false
+    assert!(!neg_dfa.accepts(&['1']));
+    assert!(!neg_dfa.accepts(&['0', '1']));
+    assert!(neg_dfa.accepts(&['1', '0', '1', '0']));
 }
