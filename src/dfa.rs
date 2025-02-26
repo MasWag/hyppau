@@ -127,20 +127,6 @@ impl<S: Eq + Hash> Hash for StateSet<S> {
     }
 }
 
-/// A reversed version of a DFA can be considered an NFA:
-///   - `initials` are the old finals
-///   - `finals` is the old initial
-///   - transitions are reversed: for each (p, a) -> q in the DFA,
-///     we have (q, a) -> p in the reversed NFA.
-#[derive(Debug, Clone)]
-struct ReversedNFA<S, A> {
-    states: HashSet<S>,
-    alphabet: HashSet<A>,
-    initials: HashSet<S>,
-    finals: HashSet<S>,
-    transitions: HashMap<(S, A), HashSet<S>>,
-}
-
 impl<S, A> DFA<S, A>
 where
     S: Eq + Hash + Clone,
