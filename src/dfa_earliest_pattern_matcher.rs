@@ -119,6 +119,7 @@ mod tests {
         Q0,
         Q1,
         Q2,
+        Q3,
         Qd,
     }
 
@@ -236,5 +237,119 @@ mod tests {
         assert_eq!(matcher.current_matching(), Some(2));
         assert_eq!(matcher.earliest_starting_position(), Some(0));
         assert_eq!(matcher.len, 4);
+    }
+
+    /// A more complex DFA that can match both "ab" and "abb".
+    #[derive(Debug)]
+    struct MultiPatternDFA {
+        pub states: HashSet<State>,
+        pub initial: State,
+        pub finals: HashSet<State>,
+        pub transitions: HashMap<(State, char), State>,
+    }
+
+    impl MultiPatternDFA {
+        /// Creates a new DFA configured to recognize both "ab" and "abb".
+        ///
+        /// # Returns
+        ///
+        /// A new instance of `MultiPatternDFA`.
+        fn new() -> Self {
+            // Define states: Q0 (initial), Q1 (after 'a'), Q2 (final, after 'ab'),
+            // Q3 (final, after 'abb'), Qd (dead state)
+            let states = vec![State::Q0, State::Q1, State::Q2, State::Q3, State::Qd]
+                .into_iter()
+                .collect();
+            let initial = State::Q0;
+            let finals = vec![State::Q2, State::Q3].into_iter().collect();
+            let mut transitions = HashMap::new();
+
+            // Transitions for state Q0 (initial)
+            transitions.insert((State::Q0, 'a'), State::Q1);
+            transitions.insert((State::Q0, 'b'), State::Qd);
+
+            // Transitions for state Q1 (after 'a')
+            transitions.insert((State::Q1, 'a'), State::Qd);
+            transitions.insert((State::Q1, 'b'), State::Q2);
+
+            // Transitions for state Q2 (final, after 'ab')
+            transitions.insert((State::Q2, 'a'), State::Q1); // Can start a new pattern
+            transitions.insert((State::Q2, 'b'), State::Q3); // Can extend to "abb"
+
+            // Transitions for state Q3 (final, after 'abb')
+            transitions.insert((State::Q3, 'a'), State::Q1); // Can start a new pattern
+            transitions.insert((State::Q3, 'b'), State::Qd);
+
+            // Transitions for the dead state Qd
+            transitions.insert((State::Qd, 'a'), State::Qd);
+            transitions.insert((State::Qd, 'b'), State::Qd);
+
+            MultiPatternDFA {
+                states,
+                initial,
+                finals,
+                transitions,
+            }
+        }
+
+        /// Converts the multi-pattern DFA into the `DFA` type expected by the matcher.
+        fn as_dfa(&self) -> DFA<State, char> {
+            DFA {
+                states: self.states.clone(),
+                alphabet: vec!['a', 'b'].into_iter().collect(),
+                initial: self.initial.clone(),
+                finals: self.finals.clone(),
+                transitions: self.transitions.clone(),
+            }
+        }
+    }
+
+    /// Tests that the matcher correctly identifies the earliest match when multiple matches
+    /// are possible at different positions.
+    #[test]
+    fn test_earliest_match_critical() {
+        let multi_dfa = MultiPatternDFA::new();
+        let dfa = multi_dfa.as_dfa();
+        let mut matcher = DFAEarliestPatternMatcher::new(&dfa);
+
+        // Input: "ababb"
+        // This test verifies that the matcher correctly identifies the earliest match
+        // when multiple patterns could match at different positions.
+        // The DFA can match both "ab" and "abb", and we'll feed each character individually
+        // to check the matcher's state after each step.
+
+        // Feed 'a' (position 0)
+        matcher.feed(&'a');
+        assert_eq!(matcher.current_matching(), None);
+        assert_eq!(matcher.earliest_starting_position(), Some(0));
+
+        // Feed 'b' (position 1) - Should match "ab" starting at position 0
+        matcher.feed(&'b');
+        assert_eq!(matcher.current_matching(), Some(0));
+        assert_eq!(matcher.earliest_starting_position(), Some(0));
+
+        // Feed 'a' (position 2)
+        matcher.feed(&'a');
+        // After feeding 'a', we're in state Q1 with starting position 2
+        // and no final states are active, so current_matching() returns None
+        assert_eq!(matcher.current_matching(), None);
+        assert_eq!(matcher.earliest_starting_position(), Some(0));
+
+        // Feed 'b' (position 3)
+        matcher.feed(&'b');
+        // After feeding 'b', we reach state Q2 (final) with starting position 2
+        // But the DFA also maintains state Q1 with starting position 0
+        // So current_matching() returns the earliest starting position (0)
+        assert_eq!(matcher.current_matching(), Some(0));
+        assert_eq!(matcher.earliest_starting_position(), Some(0));
+
+        // Feed 'b' (position 4)
+        matcher.feed(&'b');
+        // After feeding another 'b', we reach state Q3 (final) with starting position 2
+        // The DFA still maintains the earliest starting position for each state
+        // So current_matching() still returns the earliest starting position (0)
+        assert_eq!(matcher.current_matching(), Some(0));
+        assert_eq!(matcher.earliest_starting_position(), Some(0));
+        assert_eq!(matcher.len, 5);
     }
 }
