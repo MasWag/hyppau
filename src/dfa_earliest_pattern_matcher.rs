@@ -9,11 +9,12 @@ use std::{collections::HashMap, hash::Hash};
 /// (i.e. the input index) when that state was activated. It is designed to efficiently
 /// determine the earliest occurrence of a pattern as input actions are fed.
 pub struct DFAEarliestPatternMatcher<'a, S, A> {
-    dfa: &'a DFA<S, A>,
+    /// The DFA used for pattern matching
+    pub dfa: &'a DFA<S, A>,
     /// The number of input actions processed so far.
     pub len: usize,
     /// A mapping from DFA states to the starting input index (if any) when that state became active.
-    current_configuration: HashMap<&'a S, Option<usize>>,
+    pub current_configuration: HashMap<&'a S, Option<usize>>,
 }
 
 impl<'a, S, A> DFAEarliestPatternMatcher<'a, S, A>
@@ -32,7 +33,7 @@ where
     /// # Returns
     ///
     /// A new instance of `DFAEarliestPatternMatcher`.
-    fn new(dfa: &'a DFA<S, A>) -> Self {
+    pub fn new(dfa: &'a DFA<S, A>) -> Self {
         Self {
             dfa,
             len: 0,
@@ -51,7 +52,7 @@ where
     /// # Arguments
     ///
     /// * `action` - A reference to the input action to process.
-    fn feed(&mut self, action: &A) {
+    pub fn feed(&mut self, action: &A) {
         // Activate the initial state with the current input index if it isn't already active.
         self.current_configuration
             .entry(&self.dfa.initial)
@@ -88,7 +89,7 @@ where
     ///
     /// * `Some(usize)` if a final state is active, representing the earliest starting index.
     /// * `None` if no final state is active.
-    fn current_matching(&self) -> Option<usize> {
+    pub fn current_matching(&self) -> Option<usize> {
         self.dfa
             .finals
             .iter()
@@ -105,7 +106,7 @@ where
     ///
     /// * `Some(usize)` if there is at least one active state.
     /// * `None` if no states are active.
-    fn earliest_starting_position(&self) -> Option<usize> {
+    pub fn earliest_starting_position(&self) -> Option<usize> {
         self.current_configuration.values().copied().flatten().min()
     }
 }

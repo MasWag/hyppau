@@ -77,6 +77,7 @@ mod dfa_earliest_pattern_matcher;
 mod fjs_hyper_pattern_matching;
 mod hyper_pattern_matching;
 mod kmp_skip_values;
+mod matching_filter;
 mod multi_stream_reader;
 mod naive_hyper_pattern_matching;
 mod nfa;
