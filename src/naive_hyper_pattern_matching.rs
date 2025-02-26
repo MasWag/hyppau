@@ -1,8 +1,6 @@
 use crate::automata::NFAH;
 use crate::automata_runner::{AppendOnlySequence, NFAHRunner};
-use crate::hyper_pattern_matching::{
-    HyperPatternMatching, PatternMatchingAutomataConfiguration, PatternMatchingAutomataRunner,
-};
+use crate::hyper_pattern_matching::{HyperPatternMatching, PatternMatchingAutomataRunner};
 use crate::result_notifier::{MatchingInterval, ResultNotifier};
 use itertools::Itertools;
 use std::cmp::Reverse;

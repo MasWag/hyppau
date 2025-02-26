@@ -320,10 +320,7 @@ impl<T> AppendOnlySequence<T> {
 
 impl<T: Clone> AppendOnlySequence<T> {
     pub fn get(&self, index: usize) -> Option<T> {
-        match self.data.borrow().get(index) {
-            None => None,
-            Some(value) => Some(value.clone()),
-        }
+        self.data.borrow().get(index).map(|value| value.clone())
     }
 }
 

@@ -2,10 +2,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use itertools::Itertools;
 use typed_arena::Arena;
 
-use crate::automata::{Automata, State, Transition, ValidLabel, NFA};
+use crate::automata::{Automata, State, Transition, ValidLabel};
 
 /// A Deterministic Finite Automaton (DFA) over alphabet `A` with states of type `S`.
 #[derive(Debug, Clone)]

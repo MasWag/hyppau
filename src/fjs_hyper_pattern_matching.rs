@@ -1,11 +1,9 @@
 use crate::automata::NFAH;
 use crate::automata_runner::{AppendOnlySequence, NFAHRunner};
-use crate::hyper_pattern_matching::{
-    HyperPatternMatching, PatternMatchingAutomataConfiguration, PatternMatchingAutomataRunner,
-};
+use crate::hyper_pattern_matching::{HyperPatternMatching, PatternMatchingAutomataRunner};
 use crate::kmp_skip_values::KMPSkipValues;
 use crate::naive_hyper_pattern_matching::StartPosition;
-use crate::quick_search_skip_values::{self, QuickSearchSkipValues};
+use crate::quick_search_skip_values::QuickSearchSkipValues;
 use crate::result_notifier::{MatchingInterval, ResultNotifier};
 use itertools::Itertools;
 use std::cmp::Reverse;
