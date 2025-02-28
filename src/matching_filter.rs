@@ -7,9 +7,9 @@ use std::{collections::VecDeque, hash::Hash};
 /// Given a stream, it masks the elements not appearing in any matching
 /// pattern by replacing them with None. Elements that are part of a match
 /// are preserved as Some(element).
-pub struct MatchingFilter<'a, S, L> {
+pub struct MatchingFilter<S, L> {
     /// The pattern matcher used to identify matches in the input stream
-    matcher: DFAEarliestPatternMatcher<'a, S, L>,
+    matcher: DFAEarliestPatternMatcher<S, L>,
     /// The input stream to filter
     input_stream: ReadableView<L>,
     /// Temporally queue
@@ -18,7 +18,7 @@ pub struct MatchingFilter<'a, S, L> {
     output_stream: AppendOnlySequence<Option<L>>,
 }
 
-impl<'a, S, L> MatchingFilter<'a, S, L>
+impl<S, L> MatchingFilter<S, L>
 where
     S: Eq + Hash + Clone,
     L: Eq + Hash + Clone,
@@ -33,10 +33,7 @@ where
     /// # Returns
     ///
     /// A new MatchingFilter instance
-    pub fn new(
-        matcher: DFAEarliestPatternMatcher<'a, S, L>,
-        input_stream: ReadableView<L>,
-    ) -> Self {
+    pub fn new(matcher: DFAEarliestPatternMatcher<S, L>, input_stream: ReadableView<L>) -> Self {
         Self {
             matcher,
             input_stream,
@@ -51,7 +48,10 @@ where
     ///
     /// A ReadableView of the filtered output stream
     pub fn readable_view(&self) -> ReadableView<Option<L>> {
-        self.output_stream.readable_view()
+        let readable_view = self.output_stream.readable_view();
+        // Since we do not move the start position of the output_stream, the start position of the readable_view should be 0
+        assert!(readable_view.start == 0);
+        readable_view
     }
 
     /// Consumes elements from the input stream, processes them through the matcher,
@@ -101,6 +101,17 @@ where
         self.input_stream.advance_readable(appended_length);
         // All the elements in the input stream should be consumed
         assert_eq!(0, self.input_stream.len());
+        // Move the remaining elements from the temporally_queue to the output_stream
+        if self.input_stream.is_closed() {
+            while !self.temporally_queue.is_empty() {
+                match self.temporally_queue.pop_front() {
+                    Some((label, true)) => self.output_stream.append(Some(label)),
+                    Some((_, false)) => self.output_stream.append(None),
+                    None => panic!("Something is wrong with the temporally_queue"),
+                }
+            }
+            self.output_stream.close();
+        }
     }
 }
 
@@ -146,7 +157,7 @@ mod tests {
         let dfa = create_test_dfa();
 
         // Create a matcher from the DFA
-        let matcher = DFAEarliestPatternMatcher::new(&dfa);
+        let matcher = DFAEarliestPatternMatcher::new(dfa);
 
         // Create an input stream with "abc"
         let mut input_seq = AppendOnlySequence::new();
@@ -177,7 +188,7 @@ mod tests {
         let dfa = create_test_dfa();
 
         // Create a matcher from the DFA
-        let matcher = DFAEarliestPatternMatcher::new(&dfa);
+        let matcher = DFAEarliestPatternMatcher::new(dfa);
 
         // Create an input stream with "abcabc"
         let mut input_seq = AppendOnlySequence::new();
@@ -214,7 +225,7 @@ mod tests {
         let dfa = create_test_dfa();
 
         // Create a matcher from the DFA
-        let matcher = DFAEarliestPatternMatcher::new(&dfa);
+        let matcher = DFAEarliestPatternMatcher::new(dfa);
 
         // Create an input stream with "ccc"
         let mut input_seq = AppendOnlySequence::new();
@@ -245,7 +256,7 @@ mod tests {
         let dfa = create_test_dfa();
 
         // Create a matcher from the DFA
-        let matcher = DFAEarliestPatternMatcher::new(&dfa);
+        let matcher = DFAEarliestPatternMatcher::new(dfa);
 
         // Create an empty input stream
         let input_seq = AppendOnlySequence::<char>::new();

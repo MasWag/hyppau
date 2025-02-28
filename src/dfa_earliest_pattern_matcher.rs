@@ -8,16 +8,16 @@ use std::{collections::HashMap, hash::Hash};
 /// and a configuration that maps DFA states to the optional starting position
 /// (i.e. the input index) when that state was activated. It is designed to efficiently
 /// determine the earliest occurrence of a pattern as input actions are fed.
-pub struct DFAEarliestPatternMatcher<'a, S, A> {
+pub struct DFAEarliestPatternMatcher<S, A> {
     /// The DFA used for pattern matching
-    pub dfa: &'a DFA<S, A>,
+    pub dfa: DFA<S, A>,
     /// The number of input actions processed so far.
     pub len: usize,
     /// A mapping from DFA states to the starting input index (if any) when that state became active.
-    pub current_configuration: HashMap<&'a S, Option<usize>>,
+    pub current_configuration: HashMap<S, Option<usize>>,
 }
 
-impl<'a, S, A> DFAEarliestPatternMatcher<'a, S, A>
+impl<'a, S, A> DFAEarliestPatternMatcher<S, A>
 where
     S: Eq + Hash + Clone,
     A: Eq + Hash + Clone,
@@ -33,7 +33,7 @@ where
     /// # Returns
     ///
     /// A new instance of `DFAEarliestPatternMatcher`.
-    pub fn new(dfa: &'a DFA<S, A>) -> Self {
+    pub fn new(dfa: DFA<S, A>) -> Self {
         Self {
             dfa,
             len: 0,
@@ -55,24 +55,24 @@ where
     pub fn feed(&mut self, action: &A) {
         // Activate the initial state with the current input index if it isn't already active.
         self.current_configuration
-            .entry(&self.dfa.initial)
+            .entry(self.dfa.initial.clone())
             .or_insert(Some(self.len));
 
         let mut next_configuration = HashMap::new();
-        for (&state, &start_position_option) in &self.current_configuration {
+        for (state, start_position_option) in self.current_configuration.iter() {
             if let Some(start_position) = start_position_option {
-                if let Some(successor) = &self.dfa.transitions.get(&(state.clone(), action.clone()))
+                if let Some(successor) = self.dfa.transitions.get(&(state.clone(), action.clone()))
                 {
                     next_configuration
-                        .entry(*successor)
+                        .entry(successor.clone())
                         .and_modify(|existing: &mut Option<usize>| {
                             if let Some(existing_pos) = existing {
-                                if start_position < *existing_pos {
-                                    *existing = Some(start_position);
+                                if start_position < existing_pos {
+                                    *existing = Some(*start_position);
                                 }
                             }
                         })
-                        .or_insert(Some(start_position));
+                        .or_insert(Some(*start_position));
                 }
             }
         }
@@ -189,7 +189,7 @@ mod tests {
     fn test_no_feed() {
         let dummy_dfa = DummyDFA::new();
         let dfa = dummy_dfa.as_dfa();
-        let matcher = DFAEarliestPatternMatcher::new(&dfa);
+        let matcher = DFAEarliestPatternMatcher::new(dfa);
         // With no feed calls, there is no active configuration.
         assert_eq!(matcher.earliest_starting_position(), None);
         assert_eq!(matcher.current_matching(), None);
@@ -200,7 +200,7 @@ mod tests {
     fn test_single_match() {
         let dummy_dfa = DummyDFA::new();
         let dfa = dummy_dfa.as_dfa();
-        let mut matcher = DFAEarliestPatternMatcher::new(&dfa);
+        let mut matcher = DFAEarliestPatternMatcher::new(dfa);
 
         // Feed 'a' then 'b', which should match the pattern "ab".
         matcher.feed(&'a');
@@ -223,7 +223,7 @@ mod tests {
     fn test_overlapping_matches() {
         let dummy_dfa = DummyDFA::new();
         let dfa = dummy_dfa.as_dfa();
-        let mut matcher = DFAEarliestPatternMatcher::new(&dfa);
+        let mut matcher = DFAEarliestPatternMatcher::new(dfa);
 
         // Input: "abab"
         let inputs = vec!['a', 'b', 'a', 'b'];
@@ -303,7 +303,7 @@ mod tests {
     fn test_earliest_match_critical() {
         let multi_dfa = MultiPatternDFA::new();
         let dfa = multi_dfa.as_dfa();
-        let mut matcher = DFAEarliestPatternMatcher::new(&dfa);
+        let mut matcher = DFAEarliestPatternMatcher::new(dfa);
 
         // Input: "ababb"
         // This test verifies that the matcher correctly identifies the earliest match

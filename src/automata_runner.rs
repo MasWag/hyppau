@@ -24,6 +24,11 @@ pub trait NFAHRunner<'a, C: NFAHConfiguration<'a> + std::cmp::Eq + std::hash::Ha
     /// Returns the current number of unique configurations tracked by the runner.
     fn len(&self) -> usize;
 
+    /// Returns `true` if the runner has no configurations.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Returns an iterator over the current configurations.
     ///
     /// Note: This returns a concrete `Iter<C>` in the trait. If you need more
@@ -42,7 +47,10 @@ pub trait NFAHRunner<'a, C: NFAHConfiguration<'a> + std::cmp::Eq + std::hash::Ha
     fn insert_from_initial_states(&mut self, input_sequence: Vec<ReadableView<String>>);
 
     /// Consumes the input sequence and move to the successors.
-    fn consume(&mut self) {
+    ///
+    /// Returns `true` if the the configuration set has updated.
+    fn consume(&mut self) -> bool {
+        let initial_size = self.len();
         let mut current_size = 0;
         while current_size != self.len() {
             current_size = self.len();
@@ -58,6 +66,8 @@ pub trait NFAHRunner<'a, C: NFAHConfiguration<'a> + std::cmp::Eq + std::hash::Ha
                 self.insert(c);
             }
         }
+
+        initial_size != current_size
     }
 }
 
@@ -273,6 +283,8 @@ impl<'a> NFAHConfiguration<'a> for SimpleAutomataConfiguration<'a> {
 pub struct AppendOnlySequence<T> {
     /// Internal shared storage of all elements in the sequence.
     data: Rc<RefCell<Vec<T>>>,
+    /// Internal shared flag to track if the sequence is closed.
+    closed: Rc<RefCell<bool>>,
 }
 
 impl<T> AppendOnlySequence<T> {
@@ -284,6 +296,7 @@ impl<T> AppendOnlySequence<T> {
     pub fn new() -> Self {
         Self {
             data: Rc::new(RefCell::new(Vec::new())),
+            closed: Rc::new(RefCell::new(false)),
         }
     }
 
@@ -294,13 +307,18 @@ impl<T> AppendOnlySequence<T> {
     ///
     /// * `value` - The value to add at the end of this sequence.
     pub fn append(&mut self, value: T) {
+        if *self.closed.borrow() {
+            panic!("Cannot append to a closed sequence.");
+        }
         self.data.borrow_mut().push(value);
     }
 
     /// Clears all elements in the sequence, removing them permanently.
     /// Any existing `ReadableView`s will now see an empty slice.
+    /// Moreover, the sequence is re-opened for appending.
     pub fn clear(&mut self) {
         self.data.borrow_mut().clear();
+        *self.closed.borrow_mut() = false;
     }
 
     /// Creates a readable view starting from the beginning of the sequence.
@@ -310,17 +328,28 @@ impl<T> AppendOnlySequence<T> {
     /// A `ReadableView` that starts at index `0` and can be advanced but not
     /// rewound.
     pub fn readable_view(&self) -> ReadableView<T> {
-        ReadableView::new(Rc::clone(&self.data))
+        ReadableView::new(Rc::clone(&self.data), Rc::clone(&self.closed))
     }
 
+    /// Returns the current length of the sequence.
     pub fn len(&self) -> usize {
         self.data.borrow().len()
+    }
+
+    /// Set the sequence as closed, meaning no more elements can be appended.
+    pub fn close(&mut self) {
+        *self.closed.borrow_mut() = true;
+    }
+
+    /// Returns `true` if the sequence is closed.
+    pub fn is_closed(&self) -> bool {
+        *self.closed.borrow()
     }
 }
 
 impl<T: Clone> AppendOnlySequence<T> {
     pub fn get(&self, index: usize) -> Option<T> {
-        self.data.borrow().get(index).map(|value| value.clone())
+        self.data.borrow().get(index).cloned()
     }
 }
 
@@ -333,6 +362,8 @@ impl<T: Clone> AppendOnlySequence<T> {
 pub struct ReadableView<T> {
     /// Shared ownership of the sequence data.
     data: Rc<RefCell<Vec<T>>>,
+    /// Shared flag to track if the sequence is closed.
+    closed: Rc<RefCell<bool>>,
     /// The current starting index for reading.
     pub start: usize,
 }
@@ -347,8 +378,8 @@ impl<T> ReadableView<T> {
     /// # Returns
     ///
     /// A readable view that will initially see the entire sequence.
-    pub fn new(data: Rc<RefCell<Vec<T>>>) -> Self {
-        Self { data, start: 0 }
+    pub fn new(data: Rc<RefCell<Vec<T>>>, closed: Rc<RefCell<bool>>) -> Self {
+        Self { data, closed, start: 0 }
     }
 
     /// Advances the readable view forward by `count` positions. If `count`
@@ -389,6 +420,11 @@ impl<T> ReadableView<T> {
     pub fn same_data(&self, other: &ReadableView<T>) -> bool {
         std::ptr::eq(self.data.as_ptr(), other.data.as_ptr())
     }
+
+    /// Returns `true` if the sequence is closed.
+    pub fn is_closed(&self) -> bool {
+        *self.closed.borrow()
+    }
 }
 
 impl<T> Clone for ReadableView<T> {
@@ -397,6 +433,7 @@ impl<T> Clone for ReadableView<T> {
     fn clone(&self) -> Self {
         ReadableView {
             data: Rc::clone(&self.data),
+            closed: Rc::clone(&self.closed),
             start: self.start,
         }
     }

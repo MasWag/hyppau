@@ -92,6 +92,7 @@ impl BufRead for SharedBuffer<&str> {
 }
 
 /// A producer for the `SharedBuffer`, allowing data to be added.
+#[derive(Clone)]
 pub struct SharedBufferSource<T> {
     buffer: Arc<Mutex<VecDeque<T>>>,
 }

@@ -1,5 +1,6 @@
 use clap::{Parser, ValueEnum};
 use env_logger::Env;
+use filtered_single_hyper_pattern_matching::NaiveFilteredSingleHyperPatternMatching;
 use log::{debug, error, info, trace};
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -12,6 +13,7 @@ use crate::result_notifier::{
 };
 use crate::serialization::{automaton_to_dot, deserialize_nfa};
 
+#[derive(Clone)]
 enum ResultNotifierType {
     Stdout(StdoutResultNotifier),
     File(FileResultNotifier),
@@ -35,6 +37,7 @@ enum Mode {
     Naive,
     Online,
     Fjs,
+    NaiveFiltered,
 }
 
 /// A prototype tool for Hyper Pattern Matching
@@ -74,6 +77,9 @@ mod automata;
 mod automata_runner;
 mod dfa;
 mod dfa_earliest_pattern_matcher;
+mod filtered_hyper_pattern_matching;
+mod filtered_pattern_matching_automata_runner;
+mod filtered_single_hyper_pattern_matching;
 mod fjs_hyper_pattern_matching;
 mod hyper_pattern_matching;
 mod kmp_skip_values;
@@ -87,6 +93,7 @@ mod reading_scheduler;
 mod result_notifier;
 mod serialization;
 mod shared_buffer;
+mod single_hyper_pattern_matching;
 
 fn main() {
     // Parse the command-line arguments
@@ -224,6 +231,23 @@ fn main() {
         Mode::Fjs => {
             use crate::fjs_hyper_pattern_matching::FJSHyperPatternMatching;
             let hyper_pattern_matching = FJSHyperPatternMatching::new(
+                &automaton,
+                result_notifier,
+                args.input
+                    .into_iter()
+                    .map(|_| AppendOnlySequence::new())
+                    .collect(),
+            );
+            let mut reading_scheduler =
+                ReadingScheduler::new(hyper_pattern_matching, multi_stream_reader);
+            reading_scheduler.run();
+        }
+        Mode::NaiveFiltered => {
+            use crate::filtered_hyper_pattern_matching::FilteredHyperPatternMatching;
+            let hyper_pattern_matching = FilteredHyperPatternMatching::<
+                NaiveFilteredSingleHyperPatternMatching<ResultNotifierType>,
+                ResultNotifierType,
+            >::new(
                 &automaton,
                 result_notifier,
                 args.input

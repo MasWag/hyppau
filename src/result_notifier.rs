@@ -61,6 +61,7 @@ pub trait ResultNotifier {
 ///     &[0, 1]
 /// ); // prints "(0: 1, 2), (1: 3, 4)" to stdout
 /// ```
+#[derive(Clone)]
 pub struct StdoutResultNotifier;
 
 impl ResultNotifier for StdoutResultNotifier {
@@ -84,6 +85,7 @@ impl ResultNotifier for StdoutResultNotifier {
 /// A `ResultNotifier` that stores matching results in a shared in-memory buffer.
 ///
 /// The results are stored as `MatchingResult` instances, containing both the intervals and their associated identifiers.
+#[derive(Clone)]
 pub struct SharedBufferResultNotifier {
     buffer: SharedBufferSource<MatchingResult>,
 }
@@ -147,6 +149,14 @@ impl ResultNotifier for FileResultNotifier {
         }
         // Append a newline at the end of the line.
         writeln!(self.file, "{}", line).expect("Failed to write to file");
+    }
+}
+
+impl Clone for FileResultNotifier {
+    fn clone(&self) -> Self {
+        // Reopen the file to ensure the new instance has its own file handle.
+        let file = self.file.try_clone().expect("Failed to clone file handle");
+        Self { file }
     }
 }
 

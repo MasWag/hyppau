@@ -165,7 +165,7 @@ impl<'a, L> Automata<'a, L>
 where
     L: Eq + Hash + Clone + ValidLabel + Debug,
 {
-    fn determinize(&self) -> DFA<usize, L> {
+    pub fn determinize(&self) -> DFA<usize, L> {
         let mut alphabet = HashSet::new();
         // BFS over all states to find transitions
         let mut queue = VecDeque::new();
