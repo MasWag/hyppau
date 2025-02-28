@@ -156,7 +156,9 @@ impl<'a> PatternMatchingAutomataConfiguration<'a> {
     }
 
     pub fn is_waiting(&self) -> bool {
-        self.input_sequence.iter().any(|s| !s.is_closed() && s.is_empty())
+        self.input_sequence
+            .iter()
+            .any(|s| !s.is_closed() && s.is_empty())
     }
 }
 

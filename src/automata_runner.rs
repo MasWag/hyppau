@@ -379,7 +379,11 @@ impl<T> ReadableView<T> {
     ///
     /// A readable view that will initially see the entire sequence.
     pub fn new(data: Rc<RefCell<Vec<T>>>, closed: Rc<RefCell<bool>>) -> Self {
-        Self { data, closed, start: 0 }
+        Self {
+            data,
+            closed,
+            start: 0,
+        }
     }
 
     /// Advances the readable view forward by `count` positions. If `count`

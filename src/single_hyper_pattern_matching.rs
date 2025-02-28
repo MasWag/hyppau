@@ -118,9 +118,11 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
                     }
                     let mut input_streams = self.input_streams.clone();
                     for variable in 0..dimensions {
-                        input_streams[variable].advance_readable(new_position.0.start_indices[variable]);
+                        input_streams[variable]
+                            .advance_readable(new_position.0.start_indices[variable]);
                     }
-                    self.automata_runner.insert_from_initial_states(input_streams);
+                    self.automata_runner
+                        .insert_from_initial_states(input_streams);
                 }
             }
         }
