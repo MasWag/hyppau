@@ -438,7 +438,7 @@ mod tests {
             .map(DFAEarliestPatternMatcher::new)
             .collect_vec();
 
-        let mut input_seqs = vec![AppendOnlySequence::new(), AppendOnlySequence::new()];
+        let mut input_seqs = [AppendOnlySequence::new(), AppendOnlySequence::new()];
 
         // Create a matching filter
         let mut filters = matchers

@@ -325,7 +325,7 @@ mod tests {
         matching.consume_remaining();
 
         // The expected results
-        let expected_results = vec![
+        let expected_results = [
             vec![0, 2, 1, 1],
             vec![0, 2, 1, 1],
             vec![0, 2, 2, 2],

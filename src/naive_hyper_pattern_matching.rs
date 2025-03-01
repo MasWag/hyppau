@@ -33,7 +33,7 @@ impl PartialOrd for StartPosition {
         let self_sum: usize = self.start_indices.iter().sum();
         let other_sum = other.start_indices.iter().sum();
         if self_sum < other_sum {
-            return Some(std::cmp::Ordering::Less);
+            Some(std::cmp::Ordering::Less)
         } else if self_sum > other_sum {
             return Some(std::cmp::Ordering::Greater);
         } else {
@@ -70,7 +70,7 @@ impl<'a, Notifier: ResultNotifier> NaiveHyperPatternMatching<'a, Notifier> {
         let ranges = vec![0..sequences.len(); automaton.dimensions];
         let ids = ranges.into_iter().multi_cartesian_product().collect_vec();
         let mut waiting_queue = successors;
-        waiting_queue.sort_by(|a, b| a.cmp(&b).reverse());
+        waiting_queue.sort_by(|a, b| a.cmp(b).reverse());
         waiting_queue.dedup();
         let mut waiting_queues = HashMap::with_capacity(ids.len());
         for id in ids {
@@ -164,7 +164,7 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for NaiveHyperPatternMatchin
                     // Put the successors to the waiting queue
                     let waiting_queue = self.waiting_queues.get_mut(&id).unwrap();
                     waiting_queue.append(&mut valid_successors);
-                    waiting_queue.sort_by(|a, b| a.cmp(&b).reverse());
+                    waiting_queue.sort_by(|a, b| a.cmp(b).reverse());
                     waiting_queue.dedup();
 
                     trace!("[NaiveHyperPatternMatching::feed] Start new matching trial from {:?} for {:?})", new_position, id);
@@ -218,7 +218,7 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for NaiveHyperPatternMatchin
                     // Put the successors to the waiting queue
                     let waiting_queue = self.waiting_queues.get_mut(&id).unwrap();
                     waiting_queue.append(&mut valid_successors);
-                    waiting_queue.sort_by(|a, b| a.cmp(&b).reverse());
+                    waiting_queue.sort_by(|a, b| a.cmp(b).reverse());
                     waiting_queue.dedup();
                     let input_sequence = id
                         .into_iter()
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_start_position_order() {
-        let start_positions = vec![
+        let start_positions = [
             StartPosition {
                 start_indices: vec![0, 3],
             },

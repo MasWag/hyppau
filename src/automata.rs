@@ -1,4 +1,3 @@
-use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
 use std::fmt::Debug;
