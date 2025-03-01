@@ -14,6 +14,8 @@ pub struct FilteredPatternMatchingAutomataRunner<'a> {
     pub current_configurations: HashSet<FilteredPatternMatchingAutomataConfiguration<'a>>,
     /// The possible streams to be used
     views: Vec<ReadableView<Option<String>>>,
+    /// The list of IDs of words we are handling in this configuration.
+    ids: Vec<usize>,
 }
 
 impl<'a> FilteredPatternMatchingAutomataRunner<'a> {
@@ -27,12 +29,17 @@ impl<'a> FilteredPatternMatchingAutomataRunner<'a> {
     /// # Returns
     ///
     /// A new `FilteredPatternMatchingAutomataRunner` with initial configurations set up.
-    pub fn new(automaton: &'a NFAH<'a>, views: Vec<ReadableView<Option<String>>>) -> Self {
+    pub fn new(
+        automaton: &'a NFAH<'a>,
+        views: Vec<ReadableView<Option<String>>>,
+        ids: Vec<usize>,
+    ) -> Self {
         let current_configurations = HashSet::new();
         Self {
             automaton,
             current_configurations,
             views,
+            ids,
         }
     }
 
@@ -85,21 +92,12 @@ impl<'a> FilteredPatternMatchingAutomataRunner<'a> {
                 input_sequence.len()
             );
         }
-        let mut ids = vec![];
-        for sequence in &input_sequence {
-            for i in 0..self.views.len() {
-                if self.views[i].same_data(sequence) {
-                    ids.push(i);
-                    break;
-                }
-            }
-        }
 
         for initial_state in self.automaton.initial_states.iter() {
             let config = FilteredPatternMatchingAutomataConfiguration::new(
                 initial_state,
                 input_sequence.clone(),
-                ids.clone(),
+                self.ids.clone(),
             );
             self.current_configurations.insert(config);
         }

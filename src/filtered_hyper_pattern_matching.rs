@@ -29,8 +29,8 @@ where
     SingleMatching: FilteredSingleHyperPatternMatching<'a, Notifier>,
     Notifier: ResultNotifier + Clone,
 {
-    pub fn new(automaton: &'a NFAH<'a>, notifier: Notifier, dimensions: usize) -> Self {
-        let sequences = (0..dimensions)
+    pub fn new(automaton: &'a NFAH<'a>, notifier: Notifier) -> Self {
+        let sequences = (0..automaton.dimensions)
             .map(|_| AppendOnlySequence::new())
             .collect_vec();
         let mut filters = HashMap::with_capacity(automaton.dimensions * sequences.len());
@@ -48,11 +48,11 @@ where
             );
         }
         for variable in 0..automaton.dimensions {
-            for id in 0..sequences.len() {
+            for word_id in 0..sequences.len() {
                 let dfa_matcher = DFAEarliestPatternMatcher::new(dfas[variable].clone());
                 filters.insert(
-                    (variable, id),
-                    MatchingFilter::new(dfa_matcher, sequences[id].readable_view()),
+                    (variable, word_id),
+                    MatchingFilter::new(dfa_matcher, sequences[word_id].readable_view()),
                 );
             }
         }
@@ -60,21 +60,24 @@ where
         let ranges = vec![0..sequences.len(); automaton.dimensions];
         let ids = ranges.into_iter().multi_cartesian_product().collect_vec();
         let mut single_matchings = Vec::with_capacity(ids.len());
-        for id in &ids {
-            let mut input_streams = Vec::with_capacity(id.len());
-            for i in 0..id.len() {
-                let variable = id[i];
-                if let Some(filter) = filters.get(&(variable, i)) {
+        for id_vec in &ids {
+            let mut input_streams = Vec::with_capacity(id_vec.len());
+            for variable in 0..id_vec.len() {
+                let word_id = id_vec[variable];
+                if let Some(filter) = filters.get(&(variable, word_id)) {
                     input_streams.push(filter.readable_view());
                 } else {
-                    panic!("No filter found for variable {} and id {}", variable, i);
+                    panic!(
+                        "No filter found for variable {} and id {}",
+                        variable, word_id
+                    );
                 }
             }
             single_matchings.push(SingleMatching::new(
                 automaton,
                 notifier.clone(),
                 input_streams,
-                id.clone(),
+                id_vec.clone(),
             ));
         }
 
@@ -142,5 +145,6 @@ where
     fn set_eof(&mut self, track: usize) {
         debug!("FilteredHyperPatternMatching::set_eof({})", track);
         self.sequences[track].close();
+        self.consume()
     }
 }

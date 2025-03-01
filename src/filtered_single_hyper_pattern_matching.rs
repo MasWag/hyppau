@@ -87,8 +87,11 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
         input_streams: Vec<ReadableView<Option<String>>>,
         ids: Vec<usize>,
     ) -> Self {
-        let mut automata_runner =
-            FilteredPatternMatchingAutomataRunner::new(automaton, input_streams.clone());
+        let mut automata_runner = FilteredPatternMatchingAutomataRunner::new(
+            automaton,
+            input_streams.clone(),
+            ids.clone(),
+        );
         let start_indices = vec![0; automaton.dimensions];
         let mut waiting_queue = StartPosition { start_indices }
             .immediate_successors()
@@ -120,6 +123,7 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
         let final_configurations = self.automata_runner.get_final_configurations();
         let dimensions = self.dimensions();
         final_configurations.iter().cloned().for_each(|c| {
+            assert_eq!(c.ids, self.ids);
             let mut intervals = Vec::with_capacity(dimensions);
             for i in 0..dimensions {
                 let begin = c.matching_begin[i];

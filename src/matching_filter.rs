@@ -196,7 +196,10 @@ mod tests {
     use typed_arena::Arena;
 
     use super::*;
-    use crate::{automata::NFAH, dfa::DFA};
+    use crate::{
+        automata::{NFAHState, NFAHTransition, NFAH},
+        dfa::DFA,
+    };
     use std::collections::{HashMap, HashSet};
 
     // Define a simple enum for states in our test DFA
@@ -392,6 +395,31 @@ mod tests {
         assert_eq!(output_slice.len(), 0);
     }
 
+    /// Helper function to create a standard test automaton with 2 dimensions
+    fn create_small_automaton<'a>(
+        state_arena: &'a Arena<NFAHState<'a>>,
+        transition_arena: &'a Arena<NFAHTransition<'a>>,
+    ) -> NFAH<'a> {
+        let mut automaton = NFAH::new(state_arena, transition_arena, 2);
+
+        // Create states
+        let s0 = automaton.add_state(true, false); // Initial state
+        let s1 = automaton.add_state(false, false);
+        let s2 = automaton.add_state(false, false);
+        let s3 = automaton.add_state(false, false);
+        let s4 = automaton.add_state(false, true); // Final state
+
+        // Add transitions
+        automaton.add_nfah_transition(s0, "a".to_string(), 0, s1); // from: 0, to: 1, label: ["a", 0]
+        automaton.add_nfah_transition(s1, "b".to_string(), 1, s2); // from: 1, to: 2, label: ["b", 1]
+        automaton.add_nfah_transition(s0, "a".to_string(), 0, s0); // from: 0, to: 0, label: ["a", 0]
+        automaton.add_nfah_transition(s0, "b".to_string(), 1, s0); // from: 0, to: 0, label: ["b", 1]
+        automaton.add_nfah_transition(s0, "c".to_string(), 0, s3); // from: 0, to: 3, label: ["c", 0]
+        automaton.add_nfah_transition(s3, "d".to_string(), 1, s4); // from: 3, to: 4, label: ["d", 1]
+
+        automaton
+    }
+
     #[test]
     fn test_small_double() {
         // Create the automaton directly instead of loading from small.json
@@ -401,22 +429,7 @@ mod tests {
         let enfa_transition_arena = Arena::new();
         let nfa_state_arena = Arena::new();
         let nfa_transition_arena = Arena::new();
-        let mut automaton = NFAH::new(&nfah_state_arena, &nfah_transition_arena, 2);
-
-        // Create states based on small.json
-        let s0 = automaton.add_state(true, false); // id: 0, is_initial: true, is_final: false
-        let s1 = automaton.add_state(false, false); // id: 1, is_initial: false, is_final: false
-        let s2 = automaton.add_state(false, false); // id: 2, is_initial: false, is_final: false
-        let s3 = automaton.add_state(false, false); // id: 3, is_initial: false, is_final: false
-        let s4 = automaton.add_state(false, true); // id: 4, is_initial: false, is_final: true
-
-        // Add transitions based on small.json
-        automaton.add_nfah_transition(s0, "a".to_string(), 0, s1); // from: 0, to: 1, label: ["a", 0]
-        automaton.add_nfah_transition(s1, "b".to_string(), 1, s2); // from: 1, to: 2, label: ["b", 1]
-        automaton.add_nfah_transition(s0, "a".to_string(), 0, s0); // from: 0, to: 0, label: ["a", 0]
-        automaton.add_nfah_transition(s0, "b".to_string(), 1, s0); // from: 0, to: 0, label: ["b", 1]
-        automaton.add_nfah_transition(s0, "c".to_string(), 0, s3); // from: 0, to: 3, label: ["c", 0]
-        automaton.add_nfah_transition(s3, "d".to_string(), 1, s4); // from: 3, to: 4, label: ["d", 1]
+        let automaton = create_small_automaton(&nfah_state_arena, &nfah_transition_arena);
 
         let mut dfas = Vec::with_capacity(2);
         dfas.push(
@@ -495,5 +508,86 @@ mod tests {
         assert_eq!(output_slices[1][0], None);
         assert_eq!(output_slices[1][1], Some("d".to_string()));
         assert_eq!(output_slices[1][2], Some("d".to_string()));
+    }
+
+    #[test]
+    fn test_small_with_abcd_10() {
+        // Create the automaton directly instead of loading from small.json
+        let nfah_state_arena = Arena::new();
+        let nfah_transition_arena = Arena::new();
+        let enfa_state_arena = Arena::new();
+        let enfa_transition_arena = Arena::new();
+        let nfa_state_arena = Arena::new();
+        let nfa_transition_arena = Arena::new();
+        let automaton = create_small_automaton(&nfah_state_arena, &nfah_transition_arena);
+
+        let mut dfas = Vec::with_capacity(2);
+        dfas.push(
+            automaton
+                .project(&enfa_state_arena, &enfa_transition_arena, 0)
+                .to_nfa_powerset(&nfa_state_arena, &nfa_transition_arena)
+                .determinize(),
+        );
+        dfas.push(
+            automaton
+                .project(&enfa_state_arena, &enfa_transition_arena, 1)
+                .to_nfa_powerset(&nfa_state_arena, &nfa_transition_arena)
+                .determinize(),
+        );
+
+        // Create a matcher from the DFA
+        let matchers = dfas
+            .into_iter()
+            .map(DFAEarliestPatternMatcher::new)
+            .collect_vec();
+
+        let mut input_seq = AppendOnlySequence::new();
+
+        // Create a matching filter
+        let mut filters = matchers
+            .into_iter()
+            .map(|matcher| MatchingFilter::new(matcher, input_seq.readable_view()))
+            .collect_vec();
+
+        // Inputs generated by `seq 10 | gen_abcd.awk`
+        let inputs = vec!["d", "b", "d", "d", "d", "a", "b", "d", "b", "c"];
+
+        // Feed all the inputs to the input stream
+        for input in inputs.iter() {
+            input_seq.append(input.to_string());
+            filters[0].consume_input();
+            filters[1].consume_input();
+        }
+
+        // Set EOF for the input stream
+        input_seq.close();
+        filters[0].consume_input();
+        filters[1].consume_input();
+
+        // Check the output
+        let outputs = filters
+            .iter()
+            .map(|filter| filter.readable_view())
+            .collect_vec();
+        let output_slices = outputs
+            .iter()
+            .map(|output| output.readable_slice())
+            .collect_vec();
+
+        assert_eq!(output_slices[0].len(), 10);
+        for i in 0..9 {
+            assert_eq!(output_slices[0][i], None);
+        }
+        assert_eq!(output_slices[0][9], Some("c".to_string()));
+
+        assert_eq!(output_slices[1].len(), 10);
+        let masked_output = vec![5, 8, 9];
+        for i in 0..10 {
+            if masked_output.contains(&i) {
+                assert_eq!(output_slices[1][i], None);
+            } else {
+                assert_eq!(output_slices[1][i], Some(inputs[i].to_string()));
+            }
+        }
     }
 }

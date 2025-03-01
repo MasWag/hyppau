@@ -247,11 +247,10 @@ fn main() {
         }
         Mode::NaiveFiltered => {
             use crate::filtered_hyper_pattern_matching::FilteredHyperPatternMatching;
-            let hyper_pattern_matching =
-                FilteredHyperPatternMatching::<
-                    NaiveFilteredSingleHyperPatternMatching<ResultNotifierType>,
-                    ResultNotifierType,
-                >::new(&automaton, result_notifier, args.input.len());
+            let hyper_pattern_matching = FilteredHyperPatternMatching::<
+                NaiveFilteredSingleHyperPatternMatching<ResultNotifierType>,
+                ResultNotifierType,
+            >::new(&automaton, result_notifier);
             let mut reading_scheduler =
                 ReadingScheduler::new(hyper_pattern_matching, multi_stream_reader);
             reading_scheduler.run();
