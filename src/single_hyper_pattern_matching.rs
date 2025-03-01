@@ -1,4 +1,4 @@
-use std::{cmp::Reverse, collections::BinaryHeap};
+use std::cmp::Reverse;
 
 use itertools::Itertools;
 
@@ -48,7 +48,7 @@ pub struct NaiveSingleHyperPatternMatching<'a, Notifier: ResultNotifier> {
     notifier: Notifier,
     input_streams: Vec<ReadableView<String>>,
     ids: Vec<usize>,
-    waiting_queue: BinaryHeap<Reverse<StartPosition>>,
+    waiting_queue: Vec<Reverse<StartPosition>>,
 }
 
 impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
@@ -63,12 +63,12 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
         let mut automata_runner =
             PatternMatchingAutomataRunner::new(automaton, input_streams.clone());
         let start_indices = vec![0; automaton.dimensions];
-        let successors = StartPosition { start_indices }
+        let mut waiting_queue = StartPosition { start_indices }
             .immediate_successors()
             .into_iter()
             .map(Reverse)
             .collect_vec();
-        let waiting_queue = BinaryHeap::from(successors);
+        waiting_queue.sort_by(|a, b| a.cmp(b).reverse());
         automata_runner.insert_from_initial_states(input_streams.clone(), ids.clone());
 
         Self {
@@ -89,7 +89,44 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
     }
 
     fn consume_input(&mut self) {
-        while self.automata_runner.consume() {
+        self.automata_runner.consume();
+        let final_configurations = self.automata_runner.get_final_configurations();
+        let dimensions = self.dimensions();
+        final_configurations.iter().cloned().for_each(|c| {
+            let mut intervals = Vec::with_capacity(dimensions);
+            for i in 0..dimensions {
+                let begin = c.matching_begin[i];
+                let end = c.input_sequence[i].start - 1;
+                intervals.push(MatchingInterval::new(begin, end));
+            }
+            self.notifier.notify(&intervals, &c.ids);
+        });
+        self.automata_runner.remove_non_waiting_configurations();
+        while self.automata_runner.is_empty() {
+            // Start new matching trial
+            if let Some(new_position) = self.waiting_queue.pop() {
+                let mut valid_successors = new_position
+                    .0
+                    .immediate_successors()
+                    .into_iter()
+                    .filter(|successor| self.in_range(successor))
+                    .map(Reverse)
+                    .collect_vec();
+                // Put the successors to the waiting queue
+                self.waiting_queue.append(&mut valid_successors);
+                self.waiting_queue.sort();
+                self.waiting_queue.dedup();
+                let mut input_streams = self.input_streams.clone();
+                for variable in 0..dimensions {
+                    input_streams[variable]
+                        .advance_readable(new_position.0.start_indices[variable]);
+                }
+                self.automata_runner
+                    .insert_from_initial_states(input_streams, self.ids.clone());
+            } else {
+                break;
+            }
+            self.automata_runner.consume();
             let final_configurations = self.automata_runner.get_final_configurations();
             let dimensions = self.dimensions();
             final_configurations.iter().cloned().for_each(|c| {
@@ -102,29 +139,6 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
                 self.notifier.notify(&intervals, &c.ids);
             });
             self.automata_runner.remove_non_waiting_configurations();
-            if self.automata_runner.is_empty() {
-                let new_position = self.waiting_queue.pop();
-                // Start new matching trial
-                if let Some(new_position) = new_position {
-                    let valid_successors = new_position
-                        .0
-                        .immediate_successors()
-                        .into_iter()
-                        .filter(|successor| self.in_range(successor))
-                        .collect_vec();
-                    // Put the successors to the waiting queue
-                    for successor in valid_successors {
-                        self.waiting_queue.push(Reverse(successor))
-                    }
-                    let mut input_streams = self.input_streams.clone();
-                    for variable in 0..dimensions {
-                        input_streams[variable]
-                            .advance_readable(new_position.0.start_indices[variable]);
-                    }
-                    self.automata_runner
-                        .insert_from_initial_states(input_streams, self.ids.clone());
-                }
-            }
         }
     }
 
@@ -193,9 +207,8 @@ mod tests {
         // Test the results
         let expected_results = vec![
             vec![MatchingInterval::new(0, 1), MatchingInterval::new(0, 1)],
-            vec![MatchingInterval::new(0, 1), MatchingInterval::new(1, 1)],
             vec![MatchingInterval::new(1, 1), MatchingInterval::new(0, 1)],
-            vec![MatchingInterval::new(1, 1), MatchingInterval::new(1, 1)],
+            vec![MatchingInterval::new(0, 1), MatchingInterval::new(1, 1)],
             vec![MatchingInterval::new(1, 1), MatchingInterval::new(1, 1)],
         ];
         for expected_result in expected_results {

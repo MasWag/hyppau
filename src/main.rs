@@ -29,7 +29,6 @@ impl ResultNotifier for ResultNotifierType {
     }
 }
 
-use crate::naive_hyper_pattern_matching::NaiveHyperPatternMatching;
 use crate::reading_scheduler::ReadingScheduler;
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -209,14 +208,11 @@ fn main() {
     info!("Start hyper pattern matching with {:?} mode", args.mode);
     match args.mode {
         Mode::Naive => {
-            let hyper_pattern_matching = NaiveHyperPatternMatching::new(
-                &automaton,
-                result_notifier,
-                args.input
-                    .into_iter()
-                    .map(|_| AppendOnlySequence::new())
-                    .collect(),
-            );
+            use crate::single_hyper_pattern_matching::NaiveSingleHyperPatternMatching;
+            let hyper_pattern_matching = HyperPatternMatchingAdapter::<
+                NaiveSingleHyperPatternMatching<ResultNotifierType>,
+                ResultNotifierType,
+            >::new(&automaton, result_notifier);
             let mut reading_scheduler =
                 ReadingScheduler::new(hyper_pattern_matching, multi_stream_reader);
             reading_scheduler.run();
