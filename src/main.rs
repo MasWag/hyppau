@@ -7,7 +7,6 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use typed_arena::Arena;
 
-use crate::automata_runner::AppendOnlySequence;
 use crate::multi_stream_reader::{MultiStreamReader, StreamSource};
 use crate::result_notifier::{
     FileResultNotifier, MatchingInterval, ResultNotifier, StdoutResultNotifier,
@@ -81,6 +80,7 @@ mod filtered_hyper_pattern_matching;
 mod filtered_pattern_matching_automata_runner;
 mod filtered_single_hyper_pattern_matching;
 mod fjs_hyper_pattern_matching;
+mod fjs_single_hyper_pattern_matching;
 mod hyper_pattern_matching;
 mod kmp_skip_values;
 mod matching_filter;
@@ -228,19 +228,29 @@ fn main() {
             reading_scheduler.run();
         }
         Mode::Fjs => {
-            use crate::fjs_hyper_pattern_matching::FJSHyperPatternMatching;
-            let hyper_pattern_matching = FJSHyperPatternMatching::new(
-                &automaton,
-                result_notifier,
-                args.input
-                    .into_iter()
-                    .map(|_| AppendOnlySequence::new())
-                    .collect(),
-            );
+            use crate::fjs_single_hyper_pattern_matching::FJSSingleHyperPatternMatching;
+            let hyper_pattern_matching = HyperPatternMatchingAdapter::<
+                FJSSingleHyperPatternMatching<ResultNotifierType>,
+                ResultNotifierType,
+            >::new(&automaton, result_notifier);
             let mut reading_scheduler =
                 ReadingScheduler::new(hyper_pattern_matching, multi_stream_reader);
             reading_scheduler.run();
         }
+        // Mode::Fjs => {
+        //     use crate::fjs_hyper_pattern_matching::FJSHyperPatternMatching;
+        //     let hyper_pattern_matching = FJSHyperPatternMatching::new(
+        //         &automaton,
+        //         result_notifier,
+        //         args.input
+        //             .into_iter()
+        //             .map(|_| AppendOnlySequence::new())
+        //             .collect(),
+        //     );
+        //     let mut reading_scheduler =
+        //         ReadingScheduler::new(hyper_pattern_matching, multi_stream_reader);
+        //     reading_scheduler.run();
+        // }
         Mode::NaiveFiltered => {
             use crate::filtered_hyper_pattern_matching::FilteredHyperPatternMatching;
             let hyper_pattern_matching = FilteredHyperPatternMatching::<
