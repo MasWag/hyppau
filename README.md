@@ -3,7 +3,7 @@ Hyper Pattern Matching
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
 
-This is the source code repository for hyper pattern matching --- A prototype tool for Hyper Pattern Matching.
+This is the source code repository for hyper pattern matching — a prototype tool for Hyper Pattern Matching.
 
 Usage
 -----
@@ -17,7 +17,8 @@ Usage
 - **-f** *file*, **--automaton** *file*: Read an automaton written in JSON format from *file*.
 - **-g**, **--graphviz**: Print the automaton in Graphviz DOT format.
 - **-o** *file*, **--output** *file*: Write the output to *file* instead of stdout.
-- **-m** *mode*, **--mode** *mode*: Choose the matching mode: naive, online, or fjs (default: naive)
+- **-m** *mode*, **--mode** *mode*: Choose the matching mode: naive, online, fjs, or naive-filtered (default: naive).
+- **-v**, **--verbose**: Increase verbosity. Use `-v` for debug-level messages and `-vv` for trace-level messages.
 
 ### Synopsis
 
@@ -34,6 +35,7 @@ hyper-pattern-matching [OPTIONS] -f FILE [FILE...]
 - **-f** *file*, **--automaton** *file*: Read an automaton written in JSON format from *file*.
 - **-g**, **--graphviz**: Print the automaton in Graphviz DOT format.
 - **-o** *file*, **--output** *file*: Write the output to *file* instead of stdout.
+- **-v**, **--verbose**: Increase verbosity. Use `-v` for debug-level logging and `-vv` for trace-level logging.
 
 ### Automaton JSON Format
 

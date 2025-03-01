@@ -1,4 +1,4 @@
-use clap::{Parser, ValueEnum};
+use clap::{ArgAction, Parser, ValueEnum};
 use env_logger::Env;
 use filtered_single_hyper_pattern_matching::NaiveFilteredSingleHyperPatternMatching;
 use log::{debug, error, info, trace};
@@ -64,9 +64,9 @@ struct Args {
     #[arg(short = 'o', long = "output", value_name = "FILE")]
     output: Option<String>,
 
-    /// Verbose mode. Causes debug messages to be printed.
-    #[arg(short = 'v', long = "verbose")]
-    verbose: bool,
+    /// Verbose mode. Use -v for debug messages and -vv for trace messages.
+    #[arg(short = 'v', long = "verbose", action = ArgAction::Count)]
+    verbose: u8,
 
     /// Choose the matching mode: naive or online (default: naive)
     #[arg(short = 'm', long = "mode", value_enum, default_value_t = Mode::Naive)]
@@ -99,18 +99,19 @@ fn main() {
     // Parse the command-line arguments
     let args = Args::parse();
 
-    // Set up the default log level based on the quiet flag unless overridden by RUST_LOG.
-    // If RUST_LOG is not set, this will default to "warn" when quiet is true. If verbose is set, it will default to "debug". Otherwise, it will default to "info".
-    let env = Env::default().filter_or(
-        "RUST_LOG",
-        if args.quiet {
-            "warn"
-        } else if args.verbose {
-            "debug"
-        } else {
-            "info"
-        },
-    );
+    // Determine log level based on quiet flag and the number of -v occurrences.
+    let log_level = if args.quiet {
+        "warn"
+    } else if args.verbose >= 2 {
+        "trace"
+    } else if args.verbose == 1 {
+        "debug"
+    } else {
+        "info"
+    };
+
+    // Set up the default log level based on the computed log level unless overridden by RUST_LOG.
+    let env = Env::default().filter_or("RUST_LOG", log_level);
     env_logger::Builder::from_env(env).init();
 
     // Log the parsed arguments for debugging
