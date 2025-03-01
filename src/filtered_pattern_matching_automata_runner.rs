@@ -1,3 +1,5 @@
+use log::trace;
+
 use crate::automata::{NFAHState, NFAHTransition, ValidLabel, NFAH};
 use crate::automata_runner::ReadableView;
 use std::{
@@ -123,7 +125,11 @@ impl<'a> FilteredPatternMatchingAutomataRunner<'a> {
                 self.insert(c);
             }
         }
-
+        trace!(
+            "initial_size, current_size: {}, {}",
+            initial_size,
+            current_size
+        );
         initial_size != current_size
     }
 }

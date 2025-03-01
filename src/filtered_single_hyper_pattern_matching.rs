@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use log::debug;
+use log::{debug, trace};
 
 use crate::{
     automata::NFAH,
@@ -53,6 +53,21 @@ pub trait FilteredSingleHyperPatternMatching<'a, Notifier: ResultNotifier> {
         }
         false
     }
+
+    /// Returns the indices where the current value of the stream is None
+    fn skipped_streams(&self, start_position: &StartPosition) -> Vec<usize> {
+        let mut skipped_streams = Vec::with_capacity(start_position.start_indices.len());
+
+        for i in 0..start_position.start_indices.len() {
+            let stream_len = self.get_input_stream(i).len();
+            let start_index = start_position.start_indices[i];
+            let readable_slice = self.get_input_stream(i).readable_slice();
+            if start_index < stream_len && readable_slice[start_index].is_none() {
+                skipped_streams.push(i);
+            }
+        }
+        skipped_streams
+    }
 }
 
 pub struct NaiveFilteredSingleHyperPatternMatching<'a, Notifier: ResultNotifier> {
@@ -100,30 +115,42 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
     }
 
     fn consume_input(&mut self) {
+        trace!("Enter NaiveFilteredSingleHyperPatternMatching::consume_input");
         self.automata_runner.consume();
-        while {
-            let final_configurations = self.automata_runner.get_final_configurations();
-            let dimensions = self.dimensions();
-            final_configurations.iter().cloned().for_each(|c| {
-                let mut intervals = Vec::with_capacity(dimensions);
-                for i in 0..dimensions {
-                    let begin = c.matching_begin[i];
-                    let end = c.input_sequence[i].start - 1;
-                    intervals.push(MatchingInterval::new(begin, end));
-                }
-                self.notifier.notify(&intervals, &c.ids);
-            });
-            self.automata_runner.remove_non_waiting_configurations();
-            self.automata_runner.remove_masked_configurations();
+        let final_configurations = self.automata_runner.get_final_configurations();
+        let dimensions = self.dimensions();
+        final_configurations.iter().cloned().for_each(|c| {
+            let mut intervals = Vec::with_capacity(dimensions);
+            for i in 0..dimensions {
+                let begin = c.matching_begin[i];
+                let end = c.input_sequence[i].start - 1;
+                intervals.push(MatchingInterval::new(begin, end));
+            }
+            self.notifier.notify(&intervals, &c.ids);
+        });
+        self.automata_runner.remove_non_waiting_configurations();
+        self.automata_runner.remove_masked_configurations();
+        while self.automata_runner.current_configurations.is_empty() {
             while self.automata_runner.current_configurations.is_empty() {
                 let new_position = self.waiting_queue.pop();
+                trace!("new_position: {:?}", new_position);
                 // Start new matching trial
                 if let Some(new_position) = new_position {
-                    let mut valid_successors = new_position
-                        .immediate_successors()
-                        .into_iter()
-                        .filter(|successor| self.in_range(successor) && !self.is_skipped(successor))
-                        .collect_vec();
+                    debug!(
+                        "new_position is {}",
+                        (if self.is_skipped(&new_position) {
+                            "skipped"
+                        } else {
+                            "not skipped"
+                        })
+                    );
+                    // let mut valid_successors = new_position
+                    //     .immediate_successors()
+                    //     .into_iter()
+                    //     .filter(|successor| self.in_range(successor) && !self.is_skipped(successor))
+                    //     .collect_vec();
+                    let mut valid_successors = self.compute_valid_successors(&new_position);
+                    trace!("valid_successors: {:?}", valid_successors);
                     // Put the successors to the waiting queue
                     self.waiting_queue.append(&mut valid_successors);
                     // Optimization: we can optimize here by not pushing the skipped elements
@@ -139,11 +166,26 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
                             .insert_from_initial_states(input_streams);
                     }
                 } else {
-                    break;
+                    trace!("Exit NaiveFilteredSingleHyperPatternMatching::consume_input");
+                    return;
                 }
             }
-            self.automata_runner.consume()
-        } {}
+            self.automata_runner.consume();
+            let final_configurations = self.automata_runner.get_final_configurations();
+            let dimensions = self.dimensions();
+            final_configurations.iter().cloned().for_each(|c| {
+                let mut intervals = Vec::with_capacity(dimensions);
+                for i in 0..dimensions {
+                    let begin = c.matching_begin[i];
+                    let end = c.input_sequence[i].start - 1;
+                    intervals.push(MatchingInterval::new(begin, end));
+                }
+                self.notifier.notify(&intervals, &c.ids);
+            });
+            self.automata_runner.remove_non_waiting_configurations();
+            // self.automata_runner.remove_masked_configurations();
+        }
+        trace!("Exit NaiveFilteredSingleHyperPatternMatching::consume_input");
     }
 
     fn get_input_stream(&self, variable: usize) -> &ReadableView<Option<String>> {
@@ -155,11 +197,50 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
     }
 }
 
+impl<'a, Notifier: ResultNotifier> NaiveFilteredSingleHyperPatternMatching<'a, Notifier> {
+    fn compute_valid_successors(&self, start_position: &StartPosition) -> Vec<StartPosition> {
+        let mut waiting_queue = Vec::new();
+        waiting_queue.push(start_position.clone());
+        let mut valid_successors = Vec::new();
+        while let Some(examined_position) = waiting_queue.pop() {
+            let skipped_streams = self.skipped_streams(&examined_position);
+
+            examined_position
+                .immediate_successors()
+                .into_iter()
+                .filter(|successor| self.in_range(successor))
+                .for_each(|successor| {
+                    // trace!("successor: {:?}", successor);
+                    if self.is_skipped(&successor) {
+                        if skipped_streams.is_empty()
+                            || skipped_streams.iter().any(|&i| {
+                                successor.start_indices[i] != examined_position.start_indices[i]
+                            })
+                        {
+                            // trace!("pushed to waiting_queue");
+                            waiting_queue.push(successor);
+                        } else {
+                            // trace!("skipped index must be updated {:?} -> {:?} ({:?})", examined_position, successor, skipped_streams);
+                        }
+                    } else {
+                        // trace!("pushed to valid_successors");
+                        valid_successors.push(successor);
+                    }
+                });
+        }
+
+        valid_successors
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
     use crate::{
-        automata_runner::AppendOnlySequence, result_notifier::SharedBufferResultNotifier,
+        automata_runner::AppendOnlySequence,
+        result_notifier::{MatchingResult, SharedBufferResultNotifier},
         shared_buffer::SharedBuffer,
     };
     use typed_arena::Arena;
@@ -214,13 +295,13 @@ mod tests {
         let expected_results = vec![
             vec![MatchingInterval::new(0, 1), MatchingInterval::new(0, 1)],
             vec![MatchingInterval::new(0, 1), MatchingInterval::new(1, 1)],
-            // vec![MatchingInterval::new(0, 1), MatchingInterval::new(3, 3)],
+            vec![MatchingInterval::new(0, 1), MatchingInterval::new(3, 3)],
             vec![MatchingInterval::new(1, 1), MatchingInterval::new(0, 1)],
             vec![MatchingInterval::new(1, 1), MatchingInterval::new(1, 1)],
-            // vec![MatchingInterval::new(1, 1), MatchingInterval::new(3, 3)],
-            // vec![MatchingInterval::new(3, 3), MatchingInterval::new(0, 1)],
-            // vec![MatchingInterval::new(3, 3), MatchingInterval::new(1, 1)],
-            // vec![MatchingInterval::new(3, 3), MatchingInterval::new(3, 3)],
+            vec![MatchingInterval::new(1, 1), MatchingInterval::new(3, 3)],
+            vec![MatchingInterval::new(3, 3), MatchingInterval::new(0, 1)],
+            vec![MatchingInterval::new(3, 3), MatchingInterval::new(1, 1)],
+            vec![MatchingInterval::new(3, 3), MatchingInterval::new(3, 3)],
         ];
         for expected_result in expected_results {
             let result = result_sink.pop();
@@ -294,42 +375,41 @@ mod tests {
 
         // The expected results
         let expected_results = vec![
-            vec![0, 2, 1, 1],
-            vec![0, 2, 1, 1],
-            vec![0, 2, 1, 1],
-            vec![0, 2, 1, 1],
-            vec![0, 2, 2, 2],
-            vec![1, 2, 1, 1],
-            vec![1, 2, 2, 2],
-            vec![2, 2, 1, 1],
-            vec![2, 2, 2, 2],
-            vec![3, 5, 1, 1],
-            vec![3, 5, 1, 1],
-            vec![3, 5, 2, 2],
-            vec![4, 5, 1, 1],
-            vec![4, 5, 2, 2],
-            vec![5, 5, 1, 1],
-            vec![5, 5, 2, 2],
-        ];
+            (0, 2, 1, 1),
+            (0, 2, 2, 2),
+            (1, 2, 1, 1),
+            (1, 2, 2, 2),
+            (2, 2, 1, 1),
+            (2, 2, 2, 2),
+            (3, 5, 1, 1),
+            (3, 5, 2, 2),
+            (4, 5, 1, 1),
+            (4, 5, 2, 2),
+            (5, 5, 1, 1),
+            (5, 5, 2, 2),
+        ]
+        .iter()
+        .map(|(s1, e1, s2, e2)| {
+            MatchingResult::new(
+                vec![
+                    MatchingInterval::new(*s1, *e1),
+                    MatchingInterval::new(*s2, *e2),
+                ],
+                vec![0, 1],
+            )
+        })
+        .collect_vec();
 
         // Collect all results
-        let mut results = Vec::new();
+        let mut results = HashSet::new();
         while let Some(result) = result_sink.pop() {
-            results.push(result);
+            results.insert(result);
         }
 
         assert_eq!(results.len(), expected_results.len());
 
-        for i in 0..results.len() {
-            assert_eq!(results[i].intervals.len(), 2);
-            assert_eq!(
-                results[i].intervals[0],
-                MatchingInterval::new(expected_results[i][0], expected_results[i][1])
-            );
-            assert_eq!(
-                results[i].intervals[1],
-                MatchingInterval::new(expected_results[i][2], expected_results[i][3])
-            );
+        for expected_result in expected_results {
+            assert!(results.contains(&expected_result));
         }
     }
 }

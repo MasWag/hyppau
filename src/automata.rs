@@ -1,3 +1,4 @@
+use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
 use std::fmt::Debug;
@@ -32,6 +33,18 @@ pub struct State<'a, L> {
     pub transitions: RefCell<Vec<&'a Transition<'a, L>>>,
     /// Whether this state is an accepting state.
     pub is_final: bool,
+}
+
+impl<'a, L> State<'a, L> {
+    /// Returns a reference to the transitions.
+    pub fn get_transitions(&self) -> std::cell::Ref<Vec<&'a Transition<'a, L>>> {
+        self.transitions.borrow()
+    }
+
+    /// Adds a transition to this state.
+    pub fn add_transition(&self, transition: &'a Transition<'a, L>) {
+        self.transitions.borrow_mut().push(transition);
+    }
 }
 
 impl<L> PartialEq for State<'_, L> {
@@ -154,15 +167,15 @@ impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
             label,
             next_state: to,
         });
-        from.transitions.borrow_mut().push(transition);
+        from.add_transition(transition);
         transition
     }
 
     /// Returns the length of the shortest accepted word in the automaton using BFS.
     pub fn shortest_accepted_word_length(&self) -> usize {
         // (state, current_length) is the BFS node;
-        let mut queue = VecDeque::new();
-        let mut visited = HashSet::new();
+        let mut queue = VecDeque::with_capacity(self.initial_states.len());
+        let mut visited = HashSet::with_capacity(self.states.len());
 
         // Start from all initial states
         for &initial_state in &self.initial_states {
@@ -191,7 +204,7 @@ impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
             }
 
             // Explore all transitions from current state
-            for &transition in current_state.transitions.borrow().iter() {
+            for &transition in current_state.get_transitions().iter() {
                 let next_state = transition.next_state;
                 let next_state_ptr = next_state as *const _;
 
@@ -209,13 +222,15 @@ impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
     ///
     /// We store the entire label `(action, var)` in the prefix.
     pub fn accepted_prefixes(&self, n: usize) -> HashSet<Vec<L>> {
-        let mut prefixes = HashSet::new();
-        let mut queue = VecDeque::new();
-        let mut visited = HashSet::new();
+        // Estimate capacity for collections
+        let estimated_capacity = self.states.len() * n;
+        let mut prefixes = HashSet::with_capacity(estimated_capacity);
+        let mut queue = VecDeque::with_capacity(self.initial_states.len());
+        let mut visited = HashSet::with_capacity(estimated_capacity);
 
         // Initialize BFS from each initial state with empty prefix
         for &init in &self.initial_states {
-            queue.push_back((init, Vec::<L>::new(), 0));
+            queue.push_back((init, Vec::<L>::with_capacity(n), 0));
             // we add length=0 for BFS
             visited.insert((init as *const _, vec![]));
         }
@@ -229,12 +244,14 @@ impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
             }
 
             // Explore outgoing transitions
-            for &transition in current_state.transitions.borrow().iter() {
+            for &transition in current_state.get_transitions().iter() {
                 let new_length = length + 1;
                 if new_length <= n {
-                    // Build the new prefix
-                    let mut new_prefix = prefix.clone();
+                    // Build the new prefix with reduced cloning
+                    let mut new_prefix = Vec::with_capacity(prefix.len() + 1);
+                    new_prefix.extend_from_slice(&prefix);
                     new_prefix.push(transition.label.clone());
+
                     let next_ptr = transition.next_state as *const _;
                     if !visited.contains(&(next_ptr, new_prefix.clone())) {
                         visited.insert((next_ptr, new_prefix.clone()));
@@ -253,8 +270,8 @@ impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
     /// states outside that set.
     pub fn remove_unreachable_transitions(&self) {
         // 1) Collect all states reachable from an initial state
-        let mut reachable = HashSet::new();
-        let mut worklist = VecDeque::new();
+        let mut reachable = HashSet::with_capacity(self.states.len());
+        let mut worklist = VecDeque::with_capacity(self.initial_states.len());
 
         for &init in &self.initial_states {
             reachable.insert(init);
@@ -262,7 +279,7 @@ impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
         }
 
         while let Some(current_state) = worklist.pop_front() {
-            for &transition in current_state.transitions.borrow().iter() {
+            for &transition in current_state.get_transitions().iter() {
                 let next = transition.next_state;
                 if !reachable.contains(&next) {
                     reachable.insert(next);
@@ -273,8 +290,8 @@ impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
 
         // 2) Among these, keep only states from which some final state is reachable.
         //    We do a backward search from final states among the "reachable" set.
-        let mut can_reach_final = HashSet::new();
-        let mut final_queue = VecDeque::new();
+        let mut can_reach_final = HashSet::with_capacity(reachable.len());
+        let mut final_queue = VecDeque::with_capacity(reachable.len() / 2);
 
         // Start from final states (that are in `reachable`)
         for &current_state in &reachable {
@@ -288,14 +305,14 @@ impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
         // then `X` also can reach final.
         loop {
             let before = can_reach_final.len();
-            let mut newly_added = Vec::new();
+            let mut newly_added = Vec::with_capacity(reachable.len() - can_reach_final.len());
             for &current_state in &reachable {
                 if can_reach_final.contains(current_state) {
                     // skip
                     continue;
                 }
                 // If current_state transitions to some state in can_reach_final, add current_state
-                let trans_out = current_state.transitions.borrow();
+                let trans_out = current_state.get_transitions();
                 if trans_out
                     .iter()
                     .any(|t| can_reach_final.contains(&t.next_state))
@@ -330,8 +347,8 @@ impl<L> Automata<'_, L> {
             return true;
         }
 
-        let mut visited = HashSet::new();
-        let mut queue = VecDeque::new();
+        let mut visited = HashSet::with_capacity(self.states.len());
+        let mut queue = VecDeque::with_capacity(self.initial_states.len());
 
         // Initialize queue with all initial states
         for &init in &self.initial_states {
@@ -345,7 +362,7 @@ impl<L> Automata<'_, L> {
 
         // BFS over the transition graph
         while let Some(state) = queue.pop_front() {
-            for &transition in state.transitions.borrow().iter() {
+            for &transition in state.get_transitions().iter() {
                 let next = transition.next_state;
                 if next.is_final {
                     // Found a final state reachable => language is non-empty
@@ -373,14 +390,16 @@ where
     pub fn states_reachable_in_exactly_n_steps(&self, steps: usize) -> HashSet<&'a State<'a, L>> {
         // We do BFS layer by layer
         let mut current_layer: HashSet<&State<'a, L>> =
-            self.initial_states.iter().copied().collect();
-        let mut next_layer = HashSet::new();
+            HashSet::with_capacity(self.initial_states.len());
+        current_layer.extend(self.initial_states.iter().copied());
+
+        let mut next_layer = HashSet::with_capacity(self.states.len());
 
         for _ in 0..steps {
             next_layer.clear();
             // move from each state in current_layer by any outgoing transition
             for st in &current_layer {
-                for &trans in st.transitions.borrow().iter() {
+                for &trans in st.get_transitions().iter() {
                     next_layer.insert(trans.next_state);
                 }
             }
@@ -404,10 +423,17 @@ pub struct AutomataStateIter<'a, L> {
 
 impl<'a, L> AutomataStateIter<'a, L> {
     pub fn new(automata: &'a Automata<'a, L>) -> Self {
-        Self {
-            seen: HashSet::new(),
-            queue: automata.initial_states.iter().copied().collect(),
+        let initial_count = automata.initial_states.len();
+        let mut seen = HashSet::with_capacity(automata.states.len());
+        let mut queue = VecDeque::with_capacity(initial_count);
+
+        // Pre-populate the queue with initial states
+        for &state in &automata.initial_states {
+            queue.push_back(state);
+            seen.insert(state as *const _);
         }
+
+        Self { seen, queue }
     }
 }
 
@@ -416,10 +442,12 @@ impl<'a, L: Clone> Iterator for AutomataStateIter<'a, L> {
     fn next(&mut self) -> Option<Self::Item> {
         let next_state = self.queue.pop_front();
         if let Some(next) = next_state {
-            self.seen.insert(next as *const _);
-            next.transitions.borrow().iter().for_each(|transition| {
-                if !self.seen.contains(&((transition.next_state) as *const _)) {
-                    self.queue.push_back(transition.next_state)
+            // We already added this state to seen in new() or in a previous iteration
+            next.get_transitions().iter().for_each(|transition| {
+                let next_ptr = transition.next_state as *const _;
+                if !self.seen.contains(&next_ptr) {
+                    self.seen.insert(next_ptr);
+                    self.queue.push_back(transition.next_state);
                 }
             });
         }
@@ -638,9 +666,9 @@ mod tests {
         let arena_t3 = Arena::new();
         let mut nfa3 = NFA::new(&arena_s3, &arena_t3, 0);
 
-        let s0_3 = nfa3.add_state(true, false);
+        let _s0_3 = nfa3.add_state(true, false);
         let _s1_3 = nfa3.add_state(false, false);
-        let s2_3 = nfa3.add_state(false, true); // final but not connected
+        let _s2_3 = nfa3.add_state(false, true); // final but not connected
 
         // s0_3 has no outgoing transitions at all. So s2_3 is unreachable.
         assert!(

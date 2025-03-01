@@ -91,7 +91,10 @@ impl<'a> NFAHRunner<'a, PatternMatchingAutomataConfiguration<'a>>
                 input_sequence.len()
             );
         }
-        let mut ids = vec![];
+
+        // Preallocate with capacity
+        let mut ids = Vec::with_capacity(input_sequence.len());
+
         for sequence in &input_sequence {
             for i in 0..self.views.len() {
                 if self.views[i].same_data(sequence) {
@@ -100,6 +103,10 @@ impl<'a> NFAHRunner<'a, PatternMatchingAutomataConfiguration<'a>>
                 }
             }
         }
+
+        // Reserve space in the HashSet for the new configurations
+        self.current_configurations
+            .reserve(self.automaton.initial_states.len());
 
         for initial_state in self.automaton.initial_states.iter() {
             let config = PatternMatchingAutomataConfiguration::new(
@@ -142,7 +149,12 @@ impl<'a> PatternMatchingAutomataConfiguration<'a> {
         input_sequence: Vec<ReadableView<String>>,
         ids: Vec<usize>,
     ) -> Self {
-        let matching_begin = input_sequence.iter().map(|s| s.start).collect();
+        // Preallocate with the exact capacity needed
+        let mut matching_begin = Vec::with_capacity(input_sequence.len());
+        for s in &input_sequence {
+            matching_begin.push(s.start);
+        }
+
         Self {
             current_state,
             input_sequence,
@@ -172,11 +184,25 @@ impl<'a> NFAHConfiguration<'a> for PatternMatchingAutomataConfiguration<'a> {
     }
 
     fn duplicate(&self, current_state: &'a NFAHState<'a>) -> Self {
+        // Create new vectors with preallocated capacity
+        let input_sequence_len = self.input_sequence.len();
+        let matching_begin_len = self.matching_begin.len();
+        let ids_len = self.ids.len();
+
+        let mut input_sequence = Vec::with_capacity(input_sequence_len);
+        let mut matching_begin = Vec::with_capacity(matching_begin_len);
+        let mut ids = Vec::with_capacity(ids_len);
+
+        // Copy elements
+        input_sequence.extend_from_slice(&self.input_sequence);
+        matching_begin.extend_from_slice(&self.matching_begin);
+        ids.extend_from_slice(&self.ids);
+
         Self {
             current_state,
-            input_sequence: self.input_sequence.clone(),
-            matching_begin: self.matching_begin.clone(),
-            ids: self.ids.clone(),
+            input_sequence,
+            matching_begin,
+            ids,
         }
     }
 
@@ -228,52 +254,89 @@ impl<'a, Notifier: ResultNotifier> OnlineHyperPatternMatching<'a, Notifier> {
         let dims = self.dimensions();
         let mut all_dims = Vec::with_capacity(dims);
 
+        // Calculate the total product size to estimate capacity
+        let mut product_size = 1;
+
         for dim in 0..dims {
             if dim == track {
                 all_dims.push(vec![self.read_size[dim] - 1]);
             } else {
-                all_dims.push((0..self.read_size[dim]).collect::<Vec<usize>>());
+                let dim_size = self.read_size[dim];
+                product_size *= dim_size;
+                let mut dim_values = Vec::with_capacity(dim_size);
+                for i in 0..dim_size {
+                    dim_values.push(i);
+                }
+                all_dims.push(dim_values);
             }
         }
 
-        // multi_cartesian_product() returns an iterator of Vec<&usize>
-        // We need to turn them into Vec<usize> by mapping (copying) each element.
+        // Preallocate the result vector with the calculated capacity
+        let mut result = Vec::with_capacity(product_size);
+
+        // Process the cartesian product with less allocations
         all_dims
             .iter()
             .multi_cartesian_product()
-            .map(|combo_of_refs| {
-                // combo_of_refs is Vec<&usize>. Convert it to Vec<usize>.
-                combo_of_refs.into_iter().copied().collect::<Vec<usize>>()
-            })
-            .collect::<Vec<Vec<usize>>>()
+            .for_each(|combo_of_refs| {
+                // Preallocate each inner vector with exact size
+                let mut inner = Vec::with_capacity(dims);
+                for &val in combo_of_refs {
+                    inner.push(val);
+                }
+                result.push(inner);
+            });
+
+        result
     }
 }
 
 impl<Notifier: ResultNotifier> HyperPatternMatching for OnlineHyperPatternMatching<'_, Notifier> {
     fn feed(&mut self, action: &str, track: usize) {
+        // Append the action to the sequence and update read size
         self.sequences[track].append(action.to_string());
         self.read_size[track] += 1;
-        for initial_position in self.build_initial_positions(track) {
-            let mut new_view = Vec::with_capacity(self.dimensions());
-            for j in 0..self.dimensions() {
+
+        // Get initial positions with optimized memory usage
+        let initial_positions = self.build_initial_positions(track);
+        let dimensions = self.dimensions();
+
+        // Process each initial position
+        for initial_position in initial_positions {
+            // Create views for each dimension with preallocated capacity
+            let mut new_view = Vec::with_capacity(dimensions);
+
+            for j in 0..dimensions {
                 new_view.push(self.sequences[j].readable_view());
                 new_view[j].start = initial_position[j];
             }
+
+            // Insert new configurations
             self.automata_runner.insert_from_initial_states(new_view);
         }
+
+        // Process configurations
         self.automata_runner.consume();
         self.automata_runner.remove_non_waiting_configurations();
+
+        // Get and process final configurations
         let final_configurations = self.automata_runner.get_final_configurations();
-        let dimensions = self.dimensions();
-        final_configurations.iter().for_each(|c| {
+
+        // Process each final configuration
+        for c in &final_configurations {
+            // Preallocate result vector
             let mut result = Vec::with_capacity(dimensions);
+
+            // Build result intervals
             for i in 0..dimensions {
                 let begin = c.matching_begin[i];
                 let end = c.input_sequence[i].start - 1;
                 result.push(MatchingInterval::new(begin, end));
             }
+
+            // Notify with the result
             self.notifier.notify(&result, &c.ids);
-        });
+        }
     }
 
     fn dimensions(&self) -> usize {

@@ -36,10 +36,13 @@ where
     ///
     /// A new MatchingFilter instance
     pub fn new(matcher: DFAEarliestPatternMatcher<S, L>, input_stream: ReadableView<L>) -> Self {
+        // Estimate initial capacity for the queue based on input stream size
+        let estimated_capacity = input_stream.len().max(16);
+
         Self {
             matcher,
             input_stream,
-            temporally_queue: VecDeque::new(),
+            temporally_queue: VecDeque::with_capacity(estimated_capacity),
             output_stream: AppendOnlySequence::new(),
         }
     }
@@ -64,45 +67,93 @@ where
     pub fn consume_input(&mut self) {
         // The following is the invariant of the MatchingFilter:
         assert!(self.input_stream.start == self.temporally_queue.len() + self.output_stream.len());
-        // Read elements from the input stream
-        self.input_stream
-            .readable_slice()
-            .iter()
-            .for_each(|element| {
-                self.matcher.feed(element);
-                self.temporally_queue.push_back((element.clone(), false));
-                if let Some(matching_bound) = self.matcher.earliest_starting_position() {
-                    // Move elements from the temporally_queue to the output_stream
-                    for _i in self.output_stream.len()..matching_bound {
+        // Get the input length and clone elements to process
+        let input_len;
+        let elements_to_process: Vec<L>;
+        {
+            let input_slice = self.input_stream.readable_slice();
+            input_len = input_slice.len();
+
+            // Clone the elements we need to process
+            elements_to_process = input_slice.iter().cloned().collect();
+        }
+
+        // Pre-allocate capacity for new elements in the queue
+        if self.temporally_queue.capacity() < self.temporally_queue.len() + input_len {
+            self.temporally_queue.reserve(input_len);
+        }
+
+        // Process each element
+        for element in elements_to_process {
+            // Feed the element to the matcher
+            self.matcher.feed(&element);
+
+            // Add to the temporary queue
+            self.temporally_queue.push_back((element, false));
+
+            // Process based on matcher state
+            if let Some(matching_bound) = self.matcher.earliest_starting_position() {
+                // Calculate how many elements to move
+                let elements_to_move = matching_bound - self.output_stream.len();
+
+                if elements_to_move > 0 {
+                    // Prepare a batch of elements to append
+                    let mut batch = Vec::with_capacity(elements_to_move);
+
+                    // Move elements from the temporally_queue to the batch
+                    for _ in 0..elements_to_move {
                         match self.temporally_queue.pop_front() {
-                            Some((label, true)) => self.output_stream.append(Some(label)),
-                            Some((_, false)) => self.output_stream.append(None),
+                            Some((label, true)) => batch.push(Some(label)),
+                            Some((_, false)) => batch.push(None),
                             None => panic!("Something is wrong with the temporally_queue"),
                         }
                     }
-                    // Mark the elements in a match as matched
-                    if let Some(i) = self.matcher.current_matching() {
-                        let pos_in_queue = i - matching_bound;
-                        for j in pos_in_queue..self.temporally_queue.len() {
-                            self.temporally_queue[j].1 = true;
-                        }
-                    }
-                } else {
-                    // Move all the elements from the temporally_queue to the output_stream
-                    for _i in 0..self.temporally_queue.len() {
-                        match self.temporally_queue.pop_front() {
-                            Some((label, true)) => self.output_stream.append(Some(label)),
-                            Some((_, false)) => self.output_stream.append(None),
-                            None => panic!("Something is wrong with the temporally_queue"),
-                        }
+
+                    // Append the batch to the output stream
+                    for item in batch {
+                        self.output_stream.append(item);
                     }
                 }
-            });
-        // process elements through the matcher
-        let appended_length = self.input_stream.readable_slice().len();
-        self.input_stream.advance_readable(appended_length);
+
+                // Mark the elements in a match as matched
+                if let Some(i) = self.matcher.current_matching() {
+                    let pos_in_queue = i - matching_bound;
+                    for j in pos_in_queue..self.temporally_queue.len() {
+                        self.temporally_queue[j].1 = true;
+                    }
+                }
+            } else {
+                // Move all elements from the queue to the output stream
+                let queue_len = self.temporally_queue.len();
+
+                if queue_len > 0 {
+                    // Prepare a batch of elements to append
+                    let mut batch = Vec::with_capacity(queue_len);
+
+                    // Move elements from the temporally_queue to the batch
+                    for _ in 0..queue_len {
+                        match self.temporally_queue.pop_front() {
+                            Some((label, true)) => batch.push(Some(label)),
+                            Some((_, false)) => batch.push(None),
+                            None => panic!("Something is wrong with the temporally_queue"),
+                        }
+                    }
+
+                    // Append the batch to the output stream
+                    for item in batch {
+                        self.output_stream.append(item);
+                    }
+                }
+            }
+        }
+
+        // Advance the input stream
+        self.input_stream.advance_readable(input_len);
+
         // All the elements in the input stream should be consumed
         assert_eq!(0, self.input_stream.len());
+
+        // Check if the stream is closed
         self.check_closed();
     }
 
@@ -110,13 +161,30 @@ where
     pub fn check_closed(&mut self) {
         if self.input_stream.is_closed() && !self.output_stream.is_closed() {
             debug!("Close the filter");
-            while !self.temporally_queue.is_empty() {
-                match self.temporally_queue.pop_front() {
-                    Some((label, true)) => self.output_stream.append(Some(label)),
-                    Some((_, false)) => self.output_stream.append(None),
-                    None => panic!("Something is wrong with the temporally_queue"),
+
+            // Process all remaining elements in the queue in a batch
+            let queue_len = self.temporally_queue.len();
+
+            if queue_len > 0 {
+                // Prepare a batch of elements to append
+                let mut batch = Vec::with_capacity(queue_len);
+
+                // Move elements from the temporally_queue to the batch
+                while !self.temporally_queue.is_empty() {
+                    match self.temporally_queue.pop_front() {
+                        Some((label, true)) => batch.push(Some(label)),
+                        Some((_, false)) => batch.push(None),
+                        None => panic!("Something is wrong with the temporally_queue"),
+                    }
+                }
+
+                // Append the batch to the output stream
+                for item in batch {
+                    self.output_stream.append(item);
                 }
             }
+
+            // Close the output stream
             self.output_stream.close();
         }
     }
