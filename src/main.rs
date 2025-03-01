@@ -94,6 +94,8 @@ mod result_notifier;
 mod serialization;
 mod shared_buffer;
 mod single_hyper_pattern_matching;
+#[cfg(test)]
+mod tests;
 
 fn main() {
     // Parse the command-line arguments
