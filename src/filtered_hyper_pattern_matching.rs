@@ -28,11 +28,10 @@ where
     SingleMatching: FilteredSingleHyperPatternMatching<'a, Notifier>,
     Notifier: ResultNotifier + Clone,
 {
-    pub fn new(
-        automaton: &'a NFAH<'a>,
-        notifier: Notifier,
-        sequences: Vec<AppendOnlySequence<String>>,
-    ) -> Self {
+    pub fn new(automaton: &'a NFAH<'a>, notifier: Notifier, dimensions: usize) -> Self {
+        let sequences = (0..dimensions)
+            .map(|_| AppendOnlySequence::new())
+            .collect_vec();
         let mut filters = HashMap::with_capacity(automaton.dimensions * sequences.len());
         let enfa_state_arena = Arena::new();
         let enfa_transition_arena = Arena::new();
@@ -183,11 +182,7 @@ mod tests {
         let matching = FilteredHyperPatternMatching::<
             NaiveFilteredSingleHyperPatternMatching<SharedBufferResultNotifier>,
             SharedBufferResultNotifier,
-        >::new(
-            &automaton,
-            notifier,
-            vec![AppendOnlySequence::new(), AppendOnlySequence::new()],
-        );
+        >::new(&automaton, notifier, 2);
 
         let mut scheduler = ReadingScheduler::new(matching, reader);
 
@@ -270,6 +265,175 @@ mod tests {
             assert_eq!(result.intervals[0], MatchingInterval::new(2, 2));
             assert_eq!(result.intervals[1], MatchingInterval::new(2, 2));
             assert_eq!(result.ids, vec![0, 1]);
+        }
+    }
+
+    #[test]
+    fn test_small() {
+        // Create the automaton directly instead of loading from small.json
+        let state_arena = Arena::new();
+        let transition_arena = Arena::new();
+        let mut automaton = NFAH::new(&state_arena, &transition_arena, 2);
+
+        // Create states based on small.json
+        let s0 = automaton.add_state(true, false); // id: 0, is_initial: true, is_final: false
+        let s1 = automaton.add_state(false, false); // id: 1, is_initial: false, is_final: false
+        let s2 = automaton.add_state(false, false); // id: 2, is_initial: false, is_final: false
+        let s3 = automaton.add_state(false, false); // id: 3, is_initial: false, is_final: false
+        let s4 = automaton.add_state(false, true); // id: 4, is_initial: false, is_final: true
+
+        // Add transitions based on small.json
+        automaton.add_nfah_transition(s0, "a".to_string(), 0, s1); // from: 0, to: 1, label: ["a", 0]
+        automaton.add_nfah_transition(s1, "b".to_string(), 1, s2); // from: 1, to: 2, label: ["b", 1]
+        automaton.add_nfah_transition(s0, "a".to_string(), 0, s0); // from: 0, to: 0, label: ["a", 0]
+        automaton.add_nfah_transition(s0, "b".to_string(), 1, s0); // from: 0, to: 0, label: ["b", 1]
+        automaton.add_nfah_transition(s0, "c".to_string(), 0, s3); // from: 0, to: 3, label: ["c", 0]
+        automaton.add_nfah_transition(s3, "d".to_string(), 1, s4); // from: 3, to: 4, label: ["d", 1]
+
+        // Create a FilteredHyperPatternMatching instance
+        let result_buffer = SharedBuffer::new();
+        let notifier = SharedBufferResultNotifier::new(result_buffer.make_source());
+        let mut result_sink = result_buffer.make_sink();
+
+        let mut matching = FilteredHyperPatternMatching::<
+            NaiveFilteredSingleHyperPatternMatching<SharedBufferResultNotifier>,
+            SharedBufferResultNotifier,
+        >::new(&automaton, notifier, 2);
+
+        matching.feed("a", 0);
+        matching.consume();
+        matching.feed("a", 1);
+        matching.consume();
+        matching.feed("a", 0);
+        matching.consume();
+        matching.feed("d", 1);
+        matching.consume();
+        matching.feed("c", 0);
+        matching.consume();
+        matching.set_eof(0);
+        matching.feed("d", 1);
+        matching.set_eof(1);
+        matching.consume();
+        matching.consume_remaining();
+
+        // The expected results
+        let expected_results = vec![
+            vec![0, 2, 1, 1],
+            vec![0, 2, 2, 2],
+            vec![1, 2, 1, 1],
+            vec![1, 2, 2, 2],
+            vec![2, 2, 1, 1],
+            vec![2, 2, 2, 2],
+        ];
+
+        // Collect all results
+        let mut results = Vec::new();
+        while let Some(result) = result_sink.pop() {
+            results.push(result);
+        }
+
+        assert_eq!(results.len(), expected_results.len());
+
+        for i in 0..results.len() {
+            assert_eq!(results[i].intervals.len(), 2);
+            assert_eq!(
+                results[i].intervals[0],
+                MatchingInterval::new(expected_results[i][0], expected_results[i][1])
+            );
+            assert_eq!(
+                results[i].intervals[1],
+                MatchingInterval::new(expected_results[i][2], expected_results[i][3])
+            );
+        }
+    }
+
+    #[test]
+    fn test_small_double() {
+        // Create the automaton directly instead of loading from small.json
+        let state_arena = Arena::new();
+        let transition_arena = Arena::new();
+        let mut automaton = NFAH::new(&state_arena, &transition_arena, 2);
+
+        // Create states based on small.json
+        let s0 = automaton.add_state(true, false); // id: 0, is_initial: true, is_final: false
+        let s1 = automaton.add_state(false, false); // id: 1, is_initial: false, is_final: false
+        let s2 = automaton.add_state(false, false); // id: 2, is_initial: false, is_final: false
+        let s3 = automaton.add_state(false, false); // id: 3, is_initial: false, is_final: false
+        let s4 = automaton.add_state(false, true); // id: 4, is_initial: false, is_final: true
+
+        // Add transitions based on small.json
+        automaton.add_nfah_transition(s0, "a".to_string(), 0, s1); // from: 0, to: 1, label: ["a", 0]
+        automaton.add_nfah_transition(s1, "b".to_string(), 1, s2); // from: 1, to: 2, label: ["b", 1]
+        automaton.add_nfah_transition(s0, "a".to_string(), 0, s0); // from: 0, to: 0, label: ["a", 0]
+        automaton.add_nfah_transition(s0, "b".to_string(), 1, s0); // from: 0, to: 0, label: ["b", 1]
+        automaton.add_nfah_transition(s0, "c".to_string(), 0, s3); // from: 0, to: 3, label: ["c", 0]
+        automaton.add_nfah_transition(s3, "d".to_string(), 1, s4); // from: 3, to: 4, label: ["d", 1]
+
+        // Create a FilteredHyperPatternMatching instance
+        let result_buffer = SharedBuffer::new();
+        let notifier = SharedBufferResultNotifier::new(result_buffer.make_source());
+        let mut result_sink = result_buffer.make_sink();
+
+        let mut matching = FilteredHyperPatternMatching::<
+            NaiveFilteredSingleHyperPatternMatching<SharedBufferResultNotifier>,
+            SharedBufferResultNotifier,
+        >::new(&automaton, notifier, 2);
+
+        matching.feed("a", 0);
+        matching.consume();
+        matching.feed("a", 1);
+        matching.consume();
+        matching.feed("a", 0);
+        matching.consume();
+        matching.feed("d", 1);
+        matching.consume();
+        matching.feed("c", 0);
+        matching.consume();
+        matching.feed("d", 1);
+        matching.set_eof(1);
+        matching.consume();
+        matching.feed("a", 0);
+        matching.consume();
+        matching.feed("a", 0);
+        matching.consume();
+        matching.feed("c", 0);
+        matching.set_eof(0);
+        matching.consume_remaining();
+
+        // The expected results
+        let expected_results = vec![
+            vec![0, 2, 1, 1],
+            vec![0, 2, 2, 2],
+            vec![1, 2, 1, 1],
+            vec![1, 2, 2, 2],
+            vec![2, 2, 1, 1],
+            vec![2, 2, 2, 2],
+            vec![3, 5, 1, 1],
+            vec![3, 5, 2, 2],
+            vec![4, 5, 1, 1],
+            vec![4, 5, 2, 2],
+            vec![5, 5, 1, 1],
+            vec![5, 5, 2, 2],
+        ];
+
+        // Collect all results
+        let mut results = Vec::new();
+        while let Some(result) = result_sink.pop() {
+            results.push(result);
+        }
+
+        assert_eq!(results.len(), expected_results.len());
+
+        for i in 0..results.len() {
+            assert_eq!(results[i].intervals.len(), 2);
+            assert_eq!(
+                results[i].intervals[0],
+                MatchingInterval::new(expected_results[i][0], expected_results[i][1])
+            );
+            assert_eq!(
+                results[i].intervals[1],
+                MatchingInterval::new(expected_results[i][2], expected_results[i][3])
+            );
         }
     }
 }
