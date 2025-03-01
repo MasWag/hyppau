@@ -1,11 +1,16 @@
 use crate::automata::{NFAHState, NFAHTransition, NFAH};
 use crate::automata_runner::{AppendOnlySequence, NFAHConfiguration, NFAHRunner, ReadableView};
+use crate::matching_filter::MatchingFilter;
 use crate::result_notifier::{MatchingInterval, ResultNotifier};
+use crate::single_hyper_pattern_matching::SingleHyperPatternMatching;
 use itertools::Itertools;
+use log::debug;
 use std::cell::Ref;
 use std::collections::hash_set::Iter;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
+use std::marker::PhantomData;
+use typed_arena::Arena;
 
 // Trait of pattern matching algorithms
 pub trait HyperPatternMatching {
@@ -83,25 +88,17 @@ impl<'a> NFAHRunner<'a, PatternMatchingAutomataConfiguration<'a>>
 
     /// Inserts new configurations for each initial state of the given automaton,
     /// using the provided `input_sequence`.
-    fn insert_from_initial_states(&mut self, input_sequence: Vec<ReadableView<String>>) {
+    fn insert_from_initial_states(
+        &mut self,
+        input_sequence: Vec<ReadableView<String>>,
+        ids: Vec<usize>,
+    ) {
         if self.automaton.dimensions != input_sequence.len() {
             panic!(
                 "Input sequence dimensions do not match automaton dimensions: expected {}, got {}",
                 self.automaton.dimensions,
                 input_sequence.len()
             );
-        }
-
-        // Preallocate with capacity
-        let mut ids = Vec::with_capacity(input_sequence.len());
-
-        for sequence in &input_sequence {
-            for i in 0..self.views.len() {
-                if self.views[i].same_data(sequence) {
-                    ids.push(i);
-                    break;
-                }
-            }
         }
 
         // Reserve space in the HashSet for the new configurations
@@ -226,6 +223,92 @@ impl<'a> NFAHConfiguration<'a> for PatternMatchingAutomataConfiguration<'a> {
     }
 }
 
+pub struct HyperPatternMatchingAdapter<'a, SingleMatching, Notifier>
+where
+    SingleMatching: SingleHyperPatternMatching<'a, Notifier>,
+    Notifier: ResultNotifier + Clone,
+{
+    automaton: &'a NFAH<'a>,
+    single_matchings: Vec<SingleMatching>,
+    sequences: Vec<AppendOnlySequence<String>>,
+    _notifier: PhantomData<Notifier>,
+}
+
+impl<'a, SingleMatching, Notifier> HyperPatternMatchingAdapter<'a, SingleMatching, Notifier>
+where
+    SingleMatching: SingleHyperPatternMatching<'a, Notifier>,
+    Notifier: ResultNotifier + Clone,
+{
+    pub fn new(automaton: &'a NFAH<'a>, notifier: Notifier) -> Self {
+        let sequences = (0..automaton.dimensions)
+            .map(|_| AppendOnlySequence::new())
+            .collect_vec();
+
+        let ranges = vec![0..sequences.len(); automaton.dimensions];
+        let ids = ranges.into_iter().multi_cartesian_product().collect_vec();
+        let mut single_matchings = Vec::with_capacity(ids.len());
+        for id_vec in ids.into_iter() {
+            let mut input_streams = Vec::with_capacity(id_vec.len());
+            for variable in 0..id_vec.len() {
+                let word_id = id_vec[variable];
+                if let Some(sequence) = sequences.get(word_id) {
+                    input_streams.push(sequence.readable_view());
+                } else {
+                    panic!(
+                        "No sequence found for variable {} and id {}",
+                        variable, word_id
+                    );
+                }
+            }
+            single_matchings.push(SingleMatching::new(
+                automaton,
+                notifier.clone(),
+                input_streams,
+                id_vec,
+            ));
+        }
+
+        Self {
+            automaton,
+            single_matchings,
+            sequences,
+            _notifier: PhantomData,
+        }
+    }
+
+    pub fn consume(&mut self) {
+        // Run the matchers
+        for single_matching in self.single_matchings.iter_mut() {
+            single_matching.consume_input();
+        }
+    }
+}
+
+impl<'a, SingleMatching, Notifier> HyperPatternMatching
+    for HyperPatternMatchingAdapter<'a, SingleMatching, Notifier>
+where
+    SingleMatching: SingleHyperPatternMatching<'a, Notifier>,
+    Notifier: ResultNotifier + Clone,
+{
+    fn feed(&mut self, action: &str, track: usize) {
+        self.sequences[track].append(action.to_string());
+        self.consume();
+    }
+
+    fn dimensions(&self) -> usize {
+        self.automaton.dimensions
+    }
+
+    fn consume_remaining(&mut self) {
+        self.consume();
+    }
+
+    fn set_eof(&mut self, track: usize) {
+        self.sequences[track].close();
+        self.consume()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,7 +404,10 @@ mod tests {
         let as_readable_view = sequences.iter().map(|s| s.readable_view()).collect();
 
         let mut runner = PatternMatchingAutomataRunner::new(&automata, as_readable_view);
-        runner.insert_from_initial_states(sequences.iter().map(|s| s.readable_view()).collect());
+        runner.insert_from_initial_states(
+            sequences.iter().map(|s| s.readable_view()).collect(),
+            vec![0, 1],
+        );
         runner.consume();
 
         let successors = runner.current_configurations;

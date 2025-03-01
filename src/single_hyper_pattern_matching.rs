@@ -69,7 +69,7 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
             .map(Reverse)
             .collect_vec();
         let waiting_queue = BinaryHeap::from(successors);
-        automata_runner.insert_from_initial_states(input_streams.clone());
+        automata_runner.insert_from_initial_states(input_streams.clone(), ids.clone());
 
         Self {
             automata_runner,
@@ -122,7 +122,7 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
                             .advance_readable(new_position.0.start_indices[variable]);
                     }
                     self.automata_runner
-                        .insert_from_initial_states(input_streams);
+                        .insert_from_initial_states(input_streams, self.ids.clone());
                 }
             }
         }

@@ -76,14 +76,13 @@ impl<'a, Notifier: ResultNotifier> NaiveHyperPatternMatching<'a, Notifier> {
         for id in ids {
             let input_sequence = id
                 .iter()
-                .map(|i| {
-                    let mut view = sequences[*i].readable_view();
-                    view.advance_readable(0);
+                .map(|&i| {
+                    let view = sequences[i].readable_view();
                     view
                 })
                 .collect_vec();
-            waiting_queues.insert(id, waiting_queue.clone());
-            automata_runner.insert_from_initial_states(input_sequence);
+            waiting_queues.insert(id.clone(), waiting_queue.clone());
+            automata_runner.insert_from_initial_states(input_sequence, id);
         }
 
         Self {
@@ -169,15 +168,15 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for NaiveHyperPatternMatchin
 
                     trace!("[NaiveHyperPatternMatching::feed] Start new matching trial from {:?} for {:?})", new_position, id);
                     let input_sequence = id
-                        .into_iter()
-                        .map(|i| {
+                        .iter()
+                        .map(|&i| {
                             let mut view = self.sequences[i].readable_view();
                             view.advance_readable(new_position.start_indices[i]);
                             view
                         })
                         .collect_vec();
                     self.automata_runner
-                        .insert_from_initial_states(input_sequence)
+                        .insert_from_initial_states(input_sequence, id)
                 }
             }
         }
@@ -221,15 +220,15 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for NaiveHyperPatternMatchin
                     waiting_queue.sort_by(|a, b| a.cmp(b).reverse());
                     waiting_queue.dedup();
                     let input_sequence = id
-                        .into_iter()
-                        .map(|i| {
+                        .iter()
+                        .map(|&i| {
                             let mut view = self.sequences[i].readable_view();
                             view.advance_readable(new_position.start_indices[i]);
                             view
                         })
                         .collect_vec();
                     self.automata_runner
-                        .insert_from_initial_states(input_sequence)
+                        .insert_from_initial_states(input_sequence, id)
                 }
             }
             self.automata_runner.consume();

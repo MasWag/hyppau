@@ -78,7 +78,8 @@ impl<'a, Notifier: ResultNotifier> OnlineSingleHyperPatternMatching<'a, Notifier
                     }
 
                     // Insert new configurations
-                    self.automata_runner.insert_from_initial_states(new_view);
+                    self.automata_runner
+                        .insert_from_initial_states(new_view, self.ids.clone());
                 }
             }
         }

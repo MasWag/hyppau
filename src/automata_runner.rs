@@ -44,7 +44,11 @@ pub trait NFAHRunner<'a, C: NFAHConfiguration<'a> + std::cmp::Eq + std::hash::Ha
     /// * `automaton` - A reference to the automaton.
     /// * `input_sequence` - A vector of `ReadableView<String>` representing the
     ///   inputs to the automaton.
-    fn insert_from_initial_states(&mut self, input_sequence: Vec<ReadableView<String>>);
+    fn insert_from_initial_states(
+        &mut self,
+        input_sequence: Vec<ReadableView<String>>,
+        ids: Vec<usize>,
+    );
 
     /// Consumes the input sequence and move to the successors.
     ///
@@ -131,7 +135,11 @@ impl<'a> NFAHRunner<'a, SimpleAutomataConfiguration<'a>> for SimpleAutomataRunne
 
     /// Inserts new configurations for each initial state of the given automaton,
     /// using the provided `input_sequence`.
-    fn insert_from_initial_states(&mut self, input_sequence: Vec<ReadableView<String>>) {
+    fn insert_from_initial_states(
+        &mut self,
+        input_sequence: Vec<ReadableView<String>>,
+        _ids: Vec<usize>,
+    ) {
         for initial_state in self.automaton.initial_states.iter() {
             let config = SimpleAutomataConfiguration::new(initial_state, input_sequence.clone());
             self.current_configurations.insert(config);

@@ -108,8 +108,8 @@ impl<'a, Notifier: ResultNotifier> FJSHyperPatternMatching<'a, Notifier> {
                     view
                 })
                 .collect_vec();
-            waiting_queues.insert(id, waiting_queue.clone());
-            automata_runner.insert_from_initial_states(input_sequence);
+            waiting_queues.insert(id.clone(), waiting_queue.clone());
+            automata_runner.insert_from_initial_states(input_sequence, id);
         }
 
         let skipped_starting_positions =
@@ -282,15 +282,15 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
                     waiting_queue.dedup();
                     debug!("[FJSHyperPatternMatching::feed] Start new matching trial from {:?} for {:?})", new_position, id);
                     let input_sequence = id
-                        .into_iter()
-                        .map(|i| {
+                        .iter()
+                        .map(|&i| {
                             let mut view = self.sequences[i].readable_view();
                             view.advance_readable(new_position.0.start_indices[i]);
                             view
                         })
                         .collect_vec();
                     self.automata_runner
-                        .insert_from_initial_states(input_sequence)
+                        .insert_from_initial_states(input_sequence, id)
                 }
             }
         }
@@ -340,15 +340,15 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
                     waiting_queue.sort();
                     waiting_queue.dedup();
                     let input_sequence = id
-                        .into_iter()
-                        .map(|i| {
+                        .iter()
+                        .map(|&i| {
                             let mut view = self.sequences[i].readable_view();
                             view.advance_readable(new_position.0.start_indices[i]);
                             view
                         })
                         .collect_vec();
                     self.automata_runner
-                        .insert_from_initial_states(input_sequence)
+                        .insert_from_initial_states(input_sequence, id)
                 }
             }
             self.automata_runner.consume();

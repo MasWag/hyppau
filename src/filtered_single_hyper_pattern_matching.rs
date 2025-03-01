@@ -148,11 +148,6 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
                             "not skipped"
                         })
                     );
-                    // let mut valid_successors = new_position
-                    //     .immediate_successors()
-                    //     .into_iter()
-                    //     .filter(|successor| self.in_range(successor) && !self.is_skipped(successor))
-                    //     .collect_vec();
                     let mut valid_successors = self.compute_valid_successors(&new_position);
                     trace!("valid_successors: {:?}", valid_successors);
                     // Put the successors to the waiting queue

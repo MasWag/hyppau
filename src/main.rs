@@ -1,6 +1,7 @@
 use clap::{ArgAction, Parser, ValueEnum};
 use env_logger::Env;
 use filtered_single_hyper_pattern_matching::NaiveFilteredSingleHyperPatternMatching;
+use hyper_pattern_matching::HyperPatternMatchingAdapter;
 use log::{debug, error, info, trace};
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -28,7 +29,6 @@ impl ResultNotifier for ResultNotifierType {
     }
 }
 
-use crate::hyper_pattern_matching::OnlineHyperPatternMatching;
 use crate::naive_hyper_pattern_matching::NaiveHyperPatternMatching;
 use crate::reading_scheduler::ReadingScheduler;
 
@@ -222,14 +222,11 @@ fn main() {
             reading_scheduler.run();
         }
         Mode::Online => {
-            let hyper_pattern_matching = OnlineHyperPatternMatching::new(
-                &automaton,
-                result_notifier,
-                args.input
-                    .into_iter()
-                    .map(|_| AppendOnlySequence::new())
-                    .collect(),
-            );
+            use crate::online_single_hyper_pattern_matching::OnlineSingleHyperPatternMatching;
+            let hyper_pattern_matching = HyperPatternMatchingAdapter::<
+                OnlineSingleHyperPatternMatching<ResultNotifierType>,
+                ResultNotifierType,
+            >::new(&automaton, result_notifier);
             let mut reading_scheduler =
                 ReadingScheduler::new(hyper_pattern_matching, multi_stream_reader);
             reading_scheduler.run();
