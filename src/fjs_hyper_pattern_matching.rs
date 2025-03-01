@@ -215,7 +215,7 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
                                         let shortest_matching_length = quick_search_skip_values
                                             .shortest_accepted_word_length_map[var];
                                         if shortest_matching_length > 0 {
-                                            let shorest_end_index =
+                                            let shortest_end_index =
                                                 start_index + shortest_matching_length - 1;
                                             let next_index = start_index + shortest_matching_length;
                                             let last_accepted_words =
@@ -223,7 +223,7 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
                                             if sequence.len()
                                                 < start_index + shortest_matching_length
                                                 && !last_accepted_words.contains(
-                                                    &sequence.get(shorest_end_index).unwrap(),
+                                                    &sequence.get(shortest_end_index).unwrap(),
                                                 )
                                             {
                                                 // This start position is ignorable according to quick search
