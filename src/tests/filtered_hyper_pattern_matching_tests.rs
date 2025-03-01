@@ -331,3 +331,68 @@ fn test_complex_pattern() {
         assert_eq!(result.ids.len(), 2, "Each result should have 2 IDs");
     }
 }
+
+/// Test using the small automaton with input from abcd.log
+#[test]
+fn test_small_with_abcd_log() {
+    let state_arena = Arena::new();
+    let transition_arena = Arena::new();
+    let automaton = create_small_automaton(&state_arena, &transition_arena);
+
+    let (mut matching, mut pop_result) = create_matching(&automaton);
+
+    // Embed the contents of abcd.log as Rust code
+    // The log contains: "d", "b", "d", "d", "d", "a", "b", "d", "b", "c"
+    // We'll distribute these between the two dimensions
+
+    // Feed input sequence - dimension 0
+    matching.feed("d", 0);
+    matching.consume();
+    matching.feed("d", 0);
+    matching.consume();
+    matching.feed("d", 0);
+    matching.consume();
+    matching.feed("a", 0);
+    matching.consume();
+    matching.feed("b", 0);
+    matching.consume();
+    matching.feed("c", 0);
+    matching.consume();
+    matching.set_eof(0);
+
+    // Feed input sequence - dimension 1
+    matching.feed("b", 1);
+    matching.consume();
+    matching.feed("d", 1);
+    matching.consume();
+    matching.feed("d", 1);
+    matching.consume();
+    matching.feed("d", 1);
+    matching.consume();
+    matching.feed("b", 1);
+    matching.set_eof(1);
+    matching.consume();
+    matching.consume_remaining();
+
+    // Collect all results
+    let mut results = Vec::new();
+    while let Some(result) = pop_result() {
+        results.push(result);
+    }
+
+    // The expected results as (start1, end1, start2, end2) for each match
+    // Based on the automaton transitions and our input distribution
+    let expected_results = [
+        vec![5, 5, 0, 1], // "c" at pos 5 in dim 0, "d" at pos 1 in dim 1
+        vec![5, 5, 0, 1], // "c" at pos 5 in dim 0, "d" at pos 1 in dim 1
+        vec![5, 5, 0, 1], // "c" at pos 5 in dim 0, "d" at pos 1 in dim 1
+        vec![5, 5, 1, 1], // "c" at pos 5 in dim 0, "d" at pos 1 in dim 1
+        vec![5, 5, 2, 2], // "c" at pos 5 in dim 0, "d" at pos 2 in dim 1
+        vec![5, 5, 2, 2], // "c" at pos 5 in dim 0, "d" at pos 2 in dim 1
+        vec![5, 5, 2, 2], // "c" at pos 5 in dim 0, "d" at pos 2 in dim 1
+        vec![5, 5, 3, 3], // "c" at pos 5 in dim 0, "d" at pos 3 in dim 1
+        vec![5, 5, 3, 3], // "c" at pos 5 in dim 0, "d" at pos 3 in dim 1
+    ];
+
+    verify_results(results, &expected_results);
+}
