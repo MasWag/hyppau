@@ -196,7 +196,7 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
     }
 }
 
-impl<'a, Notifier: ResultNotifier> NaiveFilteredSingleHyperPatternMatching<'a, Notifier> {
+impl<Notifier: ResultNotifier> NaiveFilteredSingleHyperPatternMatching<'_, Notifier> {
     fn compute_valid_successors(&self, start_position: &StartPosition) -> Vec<StartPosition> {
         let mut waiting_queue = Vec::new();
         waiting_queue.push(start_position.clone());

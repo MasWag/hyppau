@@ -1,16 +1,13 @@
 use crate::automata::{NFAHState, NFAHTransition, NFAH};
 use crate::automata_runner::{AppendOnlySequence, NFAHConfiguration, NFAHRunner, ReadableView};
-use crate::matching_filter::MatchingFilter;
-use crate::result_notifier::{MatchingInterval, ResultNotifier};
+use crate::result_notifier::ResultNotifier;
 use crate::single_hyper_pattern_matching::SingleHyperPatternMatching;
 use itertools::Itertools;
-use log::debug;
 use std::cell::Ref;
 use std::collections::hash_set::Iter;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use typed_arena::Arena;
 
 // Trait of pattern matching algorithms
 pub trait HyperPatternMatching {

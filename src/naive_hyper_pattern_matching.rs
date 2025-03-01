@@ -76,10 +76,7 @@ impl<'a, Notifier: ResultNotifier> NaiveHyperPatternMatching<'a, Notifier> {
         for id in ids {
             let input_sequence = id
                 .iter()
-                .map(|&i| {
-                    let view = sequences[i].readable_view();
-                    view
-                })
+                .map(|&i| sequences[i].readable_view())
                 .collect_vec();
             waiting_queues.insert(id.clone(), waiting_queue.clone());
             automata_runner.insert_from_initial_states(input_sequence, id);

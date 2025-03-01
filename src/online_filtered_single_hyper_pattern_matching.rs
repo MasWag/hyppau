@@ -16,7 +16,7 @@ pub struct OnlineFilteredSingleHyperPatternMatching<'a, Notifier: ResultNotifier
     ids: Vec<usize>,
 }
 
-impl<'a, Notifier: ResultNotifier> OnlineFilteredSingleHyperPatternMatching<'a, Notifier> {
+impl<Notifier: ResultNotifier> OnlineFilteredSingleHyperPatternMatching<'_, Notifier> {
     /// Computes the positions that are not skipped by the filter
     fn compute_retained_positions(&self, variable: usize) -> Vec<usize> {
         let max_value = self.input_streams[variable].start;
@@ -77,7 +77,7 @@ impl<'a, Notifier: ResultNotifier> OnlineFilteredSingleHyperPatternMatching<'a, 
     fn insert_initial_positions(&mut self) {
         let variable_size = self.dimensions();
         for variable in 0..variable_size {
-            while self.input_streams[variable].len() > 0 {
+            while !self.input_streams[variable].is_empty() {
                 // Get initial positions with optimized memory usage
                 let initial_positions = self.build_initial_positions(variable);
                 // Process each initial position
@@ -174,7 +174,6 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
 
     use super::*;
     use crate::automata_runner::AppendOnlySequence;
@@ -200,7 +199,7 @@ mod tests {
         automaton.add_nfah_transition(s1, "b".to_string(), 1, s2);
 
         // Create sequences and matcher
-        let mut sequences = vec![AppendOnlySequence::new(), AppendOnlySequence::new()];
+        let mut sequences = [AppendOnlySequence::new(), AppendOnlySequence::new()];
         let input_streams = sequences.iter().map(|s| s.readable_view()).collect();
         let ids = vec![0, 1];
 
@@ -254,7 +253,7 @@ mod tests {
         automaton.add_nfah_transition(s1, "b".to_string(), 1, s2);
 
         // Create sequences and matcher
-        let mut sequences = vec![AppendOnlySequence::new(), AppendOnlySequence::new()];
+        let mut sequences = [AppendOnlySequence::new(), AppendOnlySequence::new()];
         let input_streams = sequences.iter().map(|s| s.readable_view()).collect();
         let ids = vec![0, 1];
 
