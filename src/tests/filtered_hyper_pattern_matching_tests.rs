@@ -4,9 +4,11 @@ use crate::filtered_single_hyper_pattern_matching::NaiveFilteredSingleHyperPatte
 use crate::hyper_pattern_matching::HyperPatternMatching;
 use crate::multi_stream_reader::{MultiStreamReader, StreamSource};
 use crate::reading_scheduler::ReadingScheduler;
-use crate::result_notifier::{MatchingInterval, MatchingResult, SharedBufferResultNotifier};
+use crate::result_notifier::{MatchingResult, SharedBufferResultNotifier};
 use crate::shared_buffer::SharedBuffer;
 use typed_arena::Arena;
+
+use super::utils::{verify_ids, verify_intervals};
 
 /// Helper function to create a standard test automaton with 2 dimensions
 fn create_small_automaton<'a>(
@@ -56,54 +58,6 @@ fn create_matching<'a>(
     let pop_result = move || result_sink.pop();
 
     (matching, pop_result)
-}
-
-/// Helper function to verify matching results against expected intervals
-fn verify_intervals(results: &Vec<MatchingResult>, expected_intervals: &[Vec<usize>]) {
-    assert_eq!(
-        results.len(),
-        expected_intervals.len(),
-        "Number of results doesn't match expected"
-    );
-
-    for (i, result) in results.iter().enumerate() {
-        assert_eq!(result.intervals.len(), 2, "Result should have 2 intervals");
-        assert_eq!(
-            result.intervals[0],
-            MatchingInterval::new(expected_intervals[i][0], expected_intervals[i][1]),
-            "First interval mismatch at result {}",
-            i
-        );
-        assert_eq!(
-            result.intervals[1],
-            MatchingInterval::new(expected_intervals[i][2], expected_intervals[i][3]),
-            "Second interval mismatch at result {}",
-            i
-        );
-    }
-}
-
-/// Helper function to verify matching results against expected ids
-fn verify_ids(results: &Vec<MatchingResult>, expected_ids: &[Vec<usize>]) {
-    assert_eq!(
-        results.len(),
-        expected_ids.len(),
-        "Number of results doesn't match expected"
-    );
-
-    for (i, result) in results.iter().enumerate() {
-        assert_eq!(result.ids.len(), 2, "Result should have 2 IDs");
-        assert_eq!(
-            result.ids[0], expected_ids[i][0],
-            "First ID mismatch at result {}",
-            i
-        );
-        assert_eq!(
-            result.ids[1], expected_ids[i][1],
-            "Second ID mismatch at result {}",
-            i
-        );
-    }
 }
 
 #[test]

@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{self, Write};
 
 /// Represents a matching interval with a start and end position.
-#[derive(PartialEq, Eq, Debug, Hash, Clone)]
+#[derive(PartialEq, Eq, Debug, Hash, Clone, PartialOrd, Ord)]
 pub struct MatchingInterval {
     pub start: usize,
     pub end: usize,
@@ -16,7 +16,7 @@ impl MatchingInterval {
 }
 
 /// Contains matching intervals along with their corresponding identifiers.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct MatchingResult {
     pub intervals: Vec<MatchingInterval>,
     pub ids: Vec<usize>,
