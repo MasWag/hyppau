@@ -398,6 +398,15 @@ impl<T> ReadableView<T> {
         self.start = usize::min(self.start + count, len);
     }
 
+    /// Returns a borrow of the underlying slice.
+    ///
+    /// # Returns
+    ///
+    /// An immutable slice of type `[T]`.
+    pub fn full_slice(&self) -> Ref<'_, [T]> {
+        Ref::map(self.data.borrow(), |vec| &vec[0..])
+    }
+
     /// Returns a borrow of the underlying slice that starts at the current
     /// `start` index and goes to the end of the data.
     ///
