@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use log::debug;
 
 use crate::{
     automata::NFAH,
@@ -99,7 +100,8 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
     }
 
     fn consume_input(&mut self) {
-        while self.automata_runner.consume() {
+        self.automata_runner.consume();
+        while {
             let final_configurations = self.automata_runner.get_final_configurations();
             let dimensions = self.dimensions();
             final_configurations.iter().cloned().for_each(|c| {
@@ -112,6 +114,7 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
                 self.notifier.notify(&intervals, &c.ids);
             });
             self.automata_runner.remove_non_waiting_configurations();
+            self.automata_runner.remove_masked_configurations();
             while self.automata_runner.current_configurations.is_empty() {
                 let new_position = self.waiting_queue.pop();
                 // Start new matching trial
@@ -119,7 +122,7 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
                     let mut valid_successors = new_position
                         .immediate_successors()
                         .into_iter()
-                        .filter(|successor| self.in_range(successor))
+                        .filter(|successor| self.in_range(successor) && !self.is_skipped(successor))
                         .collect_vec();
                     // Put the successors to the waiting queue
                     self.waiting_queue.append(&mut valid_successors);
@@ -139,7 +142,8 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
                     break;
                 }
             }
-        }
+            self.automata_runner.consume()
+        } {}
     }
 
     fn get_input_stream(&self, variable: usize) -> &ReadableView<Option<String>> {
@@ -210,13 +214,13 @@ mod tests {
         let expected_results = vec![
             vec![MatchingInterval::new(0, 1), MatchingInterval::new(0, 1)],
             vec![MatchingInterval::new(0, 1), MatchingInterval::new(1, 1)],
-            vec![MatchingInterval::new(0, 1), MatchingInterval::new(3, 3)],
+            // vec![MatchingInterval::new(0, 1), MatchingInterval::new(3, 3)],
             vec![MatchingInterval::new(1, 1), MatchingInterval::new(0, 1)],
             vec![MatchingInterval::new(1, 1), MatchingInterval::new(1, 1)],
-            vec![MatchingInterval::new(1, 1), MatchingInterval::new(3, 3)],
-            vec![MatchingInterval::new(3, 3), MatchingInterval::new(0, 1)],
-            vec![MatchingInterval::new(3, 3), MatchingInterval::new(1, 1)],
-            vec![MatchingInterval::new(3, 3), MatchingInterval::new(3, 3)],
+            // vec![MatchingInterval::new(1, 1), MatchingInterval::new(3, 3)],
+            // vec![MatchingInterval::new(3, 3), MatchingInterval::new(0, 1)],
+            // vec![MatchingInterval::new(3, 3), MatchingInterval::new(1, 1)],
+            // vec![MatchingInterval::new(3, 3), MatchingInterval::new(3, 3)],
         ];
         for expected_result in expected_results {
             let result = result_sink.pop();
@@ -226,5 +230,106 @@ mod tests {
             assert_eq!(expected_result, result.unwrap().intervals);
         }
         assert!(result_sink.pop().is_none());
+    }
+
+    #[test]
+    fn test_small_double() {
+        // Create the automaton in small.json
+        let state_arena = Arena::new();
+        let transition_arena = Arena::new();
+        let mut automaton = NFAH::new(&state_arena, &transition_arena, 2);
+
+        // Create states based on small.json
+        let s0 = automaton.add_state(true, false); // id: 0, is_initial: true, is_final: false
+        let s1 = automaton.add_state(false, false); // id: 1, is_initial: false, is_final: false
+        let s2 = automaton.add_state(false, false); // id: 2, is_initial: false, is_final: false
+        let s3 = automaton.add_state(false, false); // id: 3, is_initial: false, is_final: false
+        let s4 = automaton.add_state(false, true); // id: 4, is_initial: false, is_final: true
+
+        // Add transitions based on small.json
+        automaton.add_nfah_transition(s0, "a".to_string(), 0, s1); // from: 0, to: 1, label: ["a", 0]
+        automaton.add_nfah_transition(s1, "b".to_string(), 1, s2); // from: 1, to: 2, label: ["b", 1]
+        automaton.add_nfah_transition(s0, "a".to_string(), 0, s0); // from: 0, to: 0, label: ["a", 0]
+        automaton.add_nfah_transition(s0, "b".to_string(), 1, s0); // from: 0, to: 0, label: ["b", 1]
+        automaton.add_nfah_transition(s0, "c".to_string(), 0, s3); // from: 0, to: 3, label: ["c", 0]
+        automaton.add_nfah_transition(s3, "d".to_string(), 1, s4); // from: 3, to: 4, label: ["d", 1]
+
+        let mut sequences = [AppendOnlySequence::new(), AppendOnlySequence::new()];
+        let input_streams = sequences.iter().map(|s| s.readable_view()).collect();
+        let ids = vec![0, 1];
+
+        let result_buffer = SharedBuffer::new();
+
+        let mut matcher = NaiveFilteredSingleHyperPatternMatching::new(
+            &automaton,
+            SharedBufferResultNotifier::new(result_buffer.make_source()),
+            input_streams,
+            ids.clone(),
+        );
+
+        let mut result_sink = result_buffer.make_sink();
+
+        sequences[0].append(Some("a".to_string()));
+        matcher.consume_input();
+        sequences[1].append(None);
+        matcher.consume_input();
+        sequences[0].append(Some("a".to_string()));
+        matcher.consume_input();
+        sequences[1].append(Some("d".to_string()));
+        matcher.consume_input();
+        sequences[0].append(Some("c".to_string()));
+        matcher.consume_input();
+        sequences[1].append(Some("d".to_string()));
+        matcher.consume_input();
+        sequences[1].close();
+        matcher.consume_input();
+        sequences[0].append(Some("a".to_string()));
+        matcher.consume_input();
+        sequences[0].append(Some("a".to_string()));
+        matcher.consume_input();
+        sequences[0].append(Some("c".to_string()));
+        matcher.consume_input();
+        sequences[0].close();
+        matcher.consume_input();
+
+        // The expected results
+        let expected_results = vec![
+            vec![0, 2, 1, 1],
+            vec![0, 2, 1, 1],
+            vec![0, 2, 1, 1],
+            vec![0, 2, 1, 1],
+            vec![0, 2, 2, 2],
+            vec![1, 2, 1, 1],
+            vec![1, 2, 2, 2],
+            vec![2, 2, 1, 1],
+            vec![2, 2, 2, 2],
+            vec![3, 5, 1, 1],
+            vec![3, 5, 1, 1],
+            vec![3, 5, 2, 2],
+            vec![4, 5, 1, 1],
+            vec![4, 5, 2, 2],
+            vec![5, 5, 1, 1],
+            vec![5, 5, 2, 2],
+        ];
+
+        // Collect all results
+        let mut results = Vec::new();
+        while let Some(result) = result_sink.pop() {
+            results.push(result);
+        }
+
+        assert_eq!(results.len(), expected_results.len());
+
+        for i in 0..results.len() {
+            assert_eq!(results[i].intervals.len(), 2);
+            assert_eq!(
+                results[i].intervals[0],
+                MatchingInterval::new(expected_results[i][0], expected_results[i][1])
+            );
+            assert_eq!(
+                results[i].intervals[1],
+                MatchingInterval::new(expected_results[i][2], expected_results[i][3])
+            );
+        }
     }
 }

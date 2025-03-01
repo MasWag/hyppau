@@ -49,6 +49,11 @@ impl<'a> FilteredPatternMatchingAutomataRunner<'a> {
         self.current_configurations.retain(|c| c.is_waiting());
     }
 
+    /// Removes all configurations that are not in a waiting state.
+    pub fn remove_masked_configurations(&mut self) {
+        self.current_configurations.retain(|c| !c.is_masked());
+    }
+
     /// Inserts a new configuration into the `HashSet`. Duplicate configurations
     /// (i.e., those that are `Eq`) will be automatically skipped.
     pub fn insert(&mut self, configuration: FilteredPatternMatchingAutomataConfiguration<'a>) {
@@ -100,7 +105,7 @@ impl<'a> FilteredPatternMatchingAutomataRunner<'a> {
 
     /// Consumes the input sequence and move to the successors.
     ///
-    /// Returns `true` if the the configuration set has updated.
+    /// Returns `true` if the configuration set has updated.
     pub fn consume(&mut self) -> bool {
         let initial_size = self.len();
         let mut current_size = 0;
@@ -173,7 +178,11 @@ impl<'a> FilteredPatternMatchingAutomataConfiguration<'a> {
     pub fn is_waiting(&self) -> bool {
         self.input_sequence
             .iter()
-            .any(|s| !s.is_closed() && !masked_head(s) && s.is_empty())
+            .any(|s| !s.is_closed() && s.is_empty())
+    }
+
+    pub fn is_masked(&self) -> bool {
+        self.input_sequence.iter().any(masked_head)
     }
 
     pub fn dimensions(&self) -> usize {

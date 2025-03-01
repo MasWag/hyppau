@@ -1,5 +1,6 @@
 use crate::hyper_pattern_matching::HyperPatternMatching;
 use crate::multi_stream_reader::MultiStreamReader;
+use log::debug;
 
 /// A scheduler that continuously reads from multiple input streams and feeds lines into a
 /// [`HyperPatternMatching`] implementation.
@@ -58,6 +59,7 @@ impl<Matching: HyperPatternMatching> ReadingScheduler<Matching> {
                         done[i] = availability.is_err() || availability.is_ok_and(|f| !f);
                     }
                     if done[i] {
+                        debug!("stream {} is closed", i);
                         self.matching.set_eof(i);
                     }
                 }

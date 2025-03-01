@@ -3,10 +3,11 @@ use crate::automata_runner::{AppendOnlySequence, NFAHRunner};
 use crate::hyper_pattern_matching::{HyperPatternMatching, PatternMatchingAutomataRunner};
 use crate::result_notifier::{MatchingInterval, ResultNotifier};
 use itertools::Itertools;
+use log::trace;
 use std::collections::{HashMap, HashSet};
 
 /// the element in the waiting queue of hyper pattern matching algorithms based on priority-queue.
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Clone, Ord, Eq, PartialEq)]
 pub struct StartPosition {
     /// The starting indices of the word in the pattern.
     pub start_indices: Vec<usize>,
@@ -24,6 +25,20 @@ impl StartPosition {
         }
 
         result
+    }
+}
+
+impl PartialOrd for StartPosition {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        let self_sum: usize = self.start_indices.iter().sum();
+        let other_sum = other.start_indices.iter().sum();
+        if self_sum < other_sum {
+            return Some(std::cmp::Ordering::Less);
+        } else if self_sum > other_sum {
+            return Some(std::cmp::Ordering::Greater);
+        } else {
+            return Some(self.start_indices.cmp(&other.start_indices));
+        }
     }
 }
 
@@ -94,11 +109,20 @@ impl<'a, Notifier: ResultNotifier> NaiveHyperPatternMatching<'a, Notifier> {
 
 impl<Notifier: ResultNotifier> HyperPatternMatching for NaiveHyperPatternMatching<'_, Notifier> {
     fn feed(&mut self, action: &str, track: usize) {
+        trace!(
+            "Call of NaiveHyperPatternMatching::feed({}, {})",
+            action,
+            track
+        );
         self.sequences[track].append(action.to_string());
         self.read_size[track] += 1;
         self.automata_runner.consume();
         let final_configurations = self.automata_runner.get_final_configurations();
         let dimensions = self.dimensions();
+        trace!(
+            "{:?} matching are found in NaiveHyperPatternMatching::feed.",
+            final_configurations.len()
+        );
         final_configurations.iter().for_each(|c| {
             let mut intervals = Vec::with_capacity(dimensions);
             for i in 0..dimensions {
@@ -108,7 +132,15 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for NaiveHyperPatternMatchin
             }
             self.notifier.notify(&intervals, &c.ids);
         });
+        trace!(
+            "Number of configurations before reduction: {:?}.",
+            self.automata_runner.current_configurations.len()
+        );
         self.automata_runner.remove_non_waiting_configurations();
+        trace!(
+            "Number of configurations after reduction: {:?}.",
+            self.automata_runner.current_configurations.len()
+        );
         let current_ids = self
             .automata_runner
             .current_configurations
@@ -134,6 +166,8 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for NaiveHyperPatternMatchin
                     waiting_queue.append(&mut valid_successors);
                     waiting_queue.sort_by(|a, b| a.cmp(&b).reverse());
                     waiting_queue.dedup();
+
+                    trace!("[NaiveHyperPatternMatching::feed] Start new matching trial from {:?} for {:?})", new_position, id);
                     let input_sequence = id
                         .into_iter()
                         .map(|i| {
@@ -214,6 +248,7 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for NaiveHyperPatternMatchin
     }
 
     fn set_eof(&mut self, track: usize) {
+        self.sequences[track].close();
         self.eof[track] = true;
     }
 }
@@ -356,5 +391,32 @@ mod tests {
             assert_eq!(result.ids, vec![0, 1]);
         }
         assert!(result_sink.pop().is_none());
+    }
+
+    #[test]
+    fn test_start_position_order() {
+        let start_positions = vec![
+            StartPosition {
+                start_indices: vec![0, 3],
+            },
+            StartPosition {
+                start_indices: vec![2, 2],
+            },
+            StartPosition {
+                start_indices: vec![3, 1],
+            },
+        ];
+
+        for i in 0..start_positions.len() {
+            for j in 0..start_positions.len() {
+                if i < j {
+                    assert!(start_positions[i] < start_positions[j]);
+                } else if i > j {
+                    assert!(start_positions[i] > start_positions[j]);
+                } else {
+                    assert!(start_positions[i] == start_positions[j]);
+                }
+            }
+        }
     }
 }

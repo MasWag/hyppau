@@ -6,8 +6,9 @@ use crate::naive_hyper_pattern_matching::StartPosition;
 use crate::quick_search_skip_values::QuickSearchSkipValues;
 use crate::result_notifier::{MatchingInterval, ResultNotifier};
 use itertools::Itertools;
+use log::debug;
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 /// A struct to store the skipped starting positions
 struct SkippedStartingPositions {
@@ -67,7 +68,7 @@ pub struct FJSHyperPatternMatching<'a, Notifier: ResultNotifier> {
     notifier: Notifier,
     sequences: Vec<AppendOnlySequence<String>>,
     read_size: Vec<usize>,
-    waiting_queues: HashMap<Vec<usize>, BinaryHeap<Reverse<StartPosition>>>,
+    waiting_queues: HashMap<Vec<usize>, Vec<Reverse<StartPosition>>>,
     /// The set of ignored starting positions by the skip values
     skipped_starting_positions: SkippedStartingPositions,
     quick_search_skip_value: QuickSearchSkipValues,
@@ -94,7 +95,9 @@ impl<'a, Notifier: ResultNotifier> FJSHyperPatternMatching<'a, Notifier> {
             .collect_vec();
         let ranges = vec![0..sequences.len(); automaton.dimensions];
         let ids = ranges.into_iter().multi_cartesian_product().collect_vec();
-        let waiting_queue = BinaryHeap::from(successors);
+        let mut waiting_queue = successors;
+        waiting_queue.sort();
+        waiting_queue.dedup();
         let mut waiting_queues = HashMap::with_capacity(ids.len());
         for id in ids {
             let input_sequence = id
@@ -185,7 +188,7 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
                     let waiting_queue = self.waiting_queues.get_mut(&id).unwrap();
                     fn find_new_position(
                         id: &Vec<usize>,
-                        waiting_queue: &mut BinaryHeap<Reverse<StartPosition>>,
+                        waiting_queue: &mut Vec<Reverse<StartPosition>>,
                         skipped_starting_positions: &mut SkippedStartingPositions,
                         quick_search_skip_values: &QuickSearchSkipValues,
                         sequences: &Vec<AppendOnlySequence<String>>,
@@ -262,7 +265,7 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
                 };
                 // Start new matching trial
                 if let Some(new_position) = new_position {
-                    let valid_successors = new_position
+                    let mut valid_successors = new_position
                         .0
                         .immediate_successors()
                         .into_iter()
@@ -270,12 +273,14 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
                             self.in_range(successor, &id)
                                 && self.skipped_starting_positions.matchable(successor, &id)
                         })
+                        .map(Reverse)
                         .collect_vec();
                     // Put the successors to the waiting queue
-                    for successor in valid_successors {
-                        let waiting_queue = self.waiting_queues.get_mut(&id).unwrap();
-                        waiting_queue.push(Reverse(successor))
-                    }
+                    let waiting_queue = self.waiting_queues.get_mut(&id).unwrap();
+                    waiting_queue.append(&mut valid_successors);
+                    waiting_queue.sort();
+                    waiting_queue.dedup();
+                    debug!("[FJSHyperPatternMatching::feed] Start new matching trial from {:?} for {:?})", new_position, id);
                     let input_sequence = id
                         .into_iter()
                         .map(|i| {
@@ -296,19 +301,20 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
     }
 
     fn consume_remaining(&mut self) {
+        debug!("Call FJSHyperPatternMatching::consume_remaining");
+        self.automata_runner.consume();
+        let final_configurations = self.automata_runner.get_final_configurations();
+        let dimensions = self.dimensions();
+        final_configurations.iter().for_each(|c| {
+            let mut intervals = Vec::with_capacity(dimensions);
+            for i in 0..dimensions {
+                let begin = c.matching_begin[i];
+                let end = c.input_sequence[i].start - 1;
+                intervals.push(MatchingInterval::new(begin, end));
+            }
+            self.notifier.notify(&intervals, &c.ids);
+        });
         while self.waiting_queues.values().any(|f| !f.is_empty()) {
-            self.automata_runner.consume();
-            let final_configurations = self.automata_runner.get_final_configurations();
-            let dimensions = self.dimensions();
-            final_configurations.iter().for_each(|c| {
-                let mut intervals = Vec::with_capacity(dimensions);
-                for i in 0..dimensions {
-                    let begin = c.matching_begin[i];
-                    let end = c.input_sequence[i].start - 1;
-                    intervals.push(MatchingInterval::new(begin, end));
-                }
-                self.notifier.notify(&intervals, &c.ids);
-            });
             self.automata_runner.current_configurations.clear();
             let keys = self.waiting_queues.keys().cloned().collect_vec();
             for id in keys {
@@ -318,7 +324,7 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
                 };
                 // Start new matching trial
                 if let Some(new_position) = new_position {
-                    let valid_successors = new_position
+                    let mut valid_successors = new_position
                         .0
                         .immediate_successors()
                         .into_iter()
@@ -326,12 +332,13 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
                             self.in_range(successor, &id)
                                 && self.skipped_starting_positions.matchable(successor, &id)
                         })
+                        .map(Reverse)
                         .collect_vec();
                     // Put the successors to the waiting queue
-                    for successor in valid_successors {
-                        let waiting_queue = self.waiting_queues.get_mut(&id).unwrap();
-                        waiting_queue.push(Reverse(successor))
-                    }
+                    let waiting_queue = self.waiting_queues.get_mut(&id).unwrap();
+                    waiting_queue.append(&mut valid_successors);
+                    waiting_queue.sort();
+                    waiting_queue.dedup();
                     let input_sequence = id
                         .into_iter()
                         .map(|i| {
@@ -344,10 +351,23 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
                         .insert_from_initial_states(input_sequence)
                 }
             }
+            self.automata_runner.consume();
+            let final_configurations = self.automata_runner.get_final_configurations();
+            let dimensions = self.dimensions();
+            final_configurations.iter().for_each(|c| {
+                let mut intervals = Vec::with_capacity(dimensions);
+                for i in 0..dimensions {
+                    let begin = c.matching_begin[i];
+                    let end = c.input_sequence[i].start - 1;
+                    intervals.push(MatchingInterval::new(begin, end));
+                }
+                self.notifier.notify(&intervals, &c.ids);
+            });
         }
     }
 
     fn set_eof(&mut self, track: usize) {
+        self.sequences[track].close();
         self.eof[track] = true;
     }
 }
@@ -437,6 +457,14 @@ mod tests {
             let result = result_sink.pop().expect("No data in shared buffer");
             assert_eq!(result.intervals.len(), 2);
             assert_eq!(result.ids.len(), 2);
+            assert_eq!(result.intervals[0], MatchingInterval::new(1, 2));
+            assert_eq!(result.intervals[1], MatchingInterval::new(0, 2));
+            assert_eq!(result.ids, vec![0, 1]);
+        }
+        {
+            let result = result_sink.pop().expect("No data in shared buffer");
+            assert_eq!(result.intervals.len(), 2);
+            assert_eq!(result.ids.len(), 2);
             assert_eq!(result.intervals[0], MatchingInterval::new(0, 2));
             assert_eq!(result.intervals[1], MatchingInterval::new(2, 2));
             assert_eq!(result.ids, vec![0, 1]);
@@ -446,47 +474,7 @@ mod tests {
             assert_eq!(result.intervals.len(), 2);
             assert_eq!(result.ids.len(), 2);
             assert_eq!(result.intervals[0], MatchingInterval::new(1, 2));
-            assert_eq!(result.intervals[1], MatchingInterval::new(0, 2));
-            assert_eq!(result.ids, vec![0, 1]);
-        }
-        {
-            let result = result_sink.pop().expect("No data in shared buffer");
-            assert_eq!(result.intervals.len(), 2);
-            assert_eq!(result.ids.len(), 2);
-            assert_eq!(result.intervals[0], MatchingInterval::new(1, 2));
             assert_eq!(result.intervals[1], MatchingInterval::new(1, 2));
-            assert_eq!(result.ids, vec![0, 1]);
-        }
-        {
-            let result = result_sink.pop().expect("No data in shared buffer");
-            assert_eq!(result.intervals.len(), 2);
-            assert_eq!(result.ids.len(), 2);
-            assert_eq!(result.intervals[0], MatchingInterval::new(1, 2));
-            assert_eq!(result.intervals[1], MatchingInterval::new(1, 2));
-            assert_eq!(result.ids, vec![0, 1]);
-        }
-        {
-            let result = result_sink.pop().expect("No data in shared buffer");
-            assert_eq!(result.intervals.len(), 2);
-            assert_eq!(result.ids.len(), 2);
-            assert_eq!(result.intervals[0], MatchingInterval::new(1, 2));
-            assert_eq!(result.intervals[1], MatchingInterval::new(2, 2));
-            assert_eq!(result.ids, vec![0, 1]);
-        }
-        {
-            let result = result_sink.pop().expect("No data in shared buffer");
-            assert_eq!(result.intervals.len(), 2);
-            assert_eq!(result.ids.len(), 2);
-            assert_eq!(result.intervals[0], MatchingInterval::new(1, 2));
-            assert_eq!(result.intervals[1], MatchingInterval::new(2, 2));
-            assert_eq!(result.ids, vec![0, 1]);
-        }
-        {
-            let result = result_sink.pop().expect("No data in shared buffer");
-            assert_eq!(result.intervals.len(), 2);
-            assert_eq!(result.ids.len(), 2);
-            assert_eq!(result.intervals[0], MatchingInterval::new(1, 2));
-            assert_eq!(result.intervals[1], MatchingInterval::new(2, 2));
             assert_eq!(result.ids, vec![0, 1]);
         }
         {
@@ -501,16 +489,8 @@ mod tests {
             let result = result_sink.pop().expect("No data in shared buffer");
             assert_eq!(result.intervals.len(), 2);
             assert_eq!(result.ids.len(), 2);
-            assert_eq!(result.intervals[0], MatchingInterval::new(2, 2));
-            assert_eq!(result.intervals[1], MatchingInterval::new(1, 2));
-            assert_eq!(result.ids, vec![0, 1]);
-        }
-        {
-            let result = result_sink.pop().expect("No data in shared buffer");
-            assert_eq!(result.intervals.len(), 2);
-            assert_eq!(result.ids.len(), 2);
-            assert_eq!(result.intervals[0], MatchingInterval::new(2, 2));
-            assert_eq!(result.intervals[1], MatchingInterval::new(1, 2));
+            assert_eq!(result.intervals[0], MatchingInterval::new(1, 2));
+            assert_eq!(result.intervals[1], MatchingInterval::new(2, 2));
             assert_eq!(result.ids, vec![0, 1]);
         }
         {
@@ -529,5 +509,6 @@ mod tests {
             assert_eq!(result.intervals[1], MatchingInterval::new(2, 2));
             assert_eq!(result.ids, vec![0, 1]);
         }
+        assert!(result_sink.pop().is_none());
     }
 }

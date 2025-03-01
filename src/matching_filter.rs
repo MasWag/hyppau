@@ -1,3 +1,5 @@
+use log::debug;
+
 use crate::{
     automata_runner::{AppendOnlySequence, ReadableView},
     dfa_earliest_pattern_matcher::DFAEarliestPatternMatcher,
@@ -101,8 +103,13 @@ where
         self.input_stream.advance_readable(appended_length);
         // All the elements in the input stream should be consumed
         assert_eq!(0, self.input_stream.len());
-        // Move the remaining elements from the temporally_queue to the output_stream
-        if self.input_stream.is_closed() {
+        self.check_closed();
+    }
+
+    /// Check if the input_stream is already closed. If it is closed, move the remaining elements from the temporally_queue to the output_stream
+    pub fn check_closed(&mut self) {
+        if self.input_stream.is_closed() && !self.output_stream.is_closed() {
+            debug!("Close the filter");
             while !self.temporally_queue.is_empty() {
                 match self.temporally_queue.pop_front() {
                     Some((label, true)) => self.output_stream.append(Some(label)),
@@ -117,8 +124,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use itertools::Itertools;
+    use typed_arena::Arena;
+
     use super::*;
-    use crate::dfa::DFA;
+    use crate::{automata::NFAH, dfa::DFA};
     use std::collections::{HashMap, HashSet};
 
     // Define a simple enum for states in our test DFA
@@ -145,6 +155,45 @@ mod tests {
         DFA {
             states,
             alphabet: vec!['a', 'b', 'c'].into_iter().collect(),
+            initial,
+            finals,
+            transitions,
+        }
+    }
+
+    // Define states for the small.json automaton projection (variable 0)
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    enum SmallState {
+        S0, // Initial state
+        S1, // After 'a'
+        S3, // After 'c'
+        S4, // Final state (not directly reachable in variable 0 projection)
+    }
+
+    // Helper function to create a DFA based on the variable 0 projection from test_small_double
+    fn create_small_dfa() -> DFA<SmallState, String> {
+        let states = vec![
+            SmallState::S0,
+            SmallState::S1,
+            SmallState::S3,
+            SmallState::S4,
+        ]
+        .into_iter()
+        .collect::<HashSet<_>>();
+
+        let initial = SmallState::S0;
+        let finals = vec![SmallState::S3].into_iter().collect();
+
+        let mut transitions = HashMap::new();
+        // In the original NFAH, there are transitions from S0 to S1 and S0 to S0 with label "a",
+        // but in a DFA we can only have one transition per state-label pair.
+        // Since we're testing the filter's behavior with the "c" pattern, we'll prioritize that.
+        transitions.insert((SmallState::S0, "a".to_string()), SmallState::S1);
+        transitions.insert((SmallState::S0, "c".to_string()), SmallState::S3);
+
+        DFA {
+            states,
+            alphabet: vec!["a".to_string(), "c".to_string()].into_iter().collect(),
             initial,
             finals,
             transitions,
@@ -273,5 +322,110 @@ mod tests {
 
         // Output should be empty
         assert_eq!(output_slice.len(), 0);
+    }
+
+    #[test]
+    fn test_small_double() {
+        // Create the automaton directly instead of loading from small.json
+        let nfah_state_arena = Arena::new();
+        let nfah_transition_arena = Arena::new();
+        let enfa_state_arena = Arena::new();
+        let enfa_transition_arena = Arena::new();
+        let nfa_state_arena = Arena::new();
+        let nfa_transition_arena = Arena::new();
+        let mut automaton = NFAH::new(&nfah_state_arena, &nfah_transition_arena, 2);
+
+        // Create states based on small.json
+        let s0 = automaton.add_state(true, false); // id: 0, is_initial: true, is_final: false
+        let s1 = automaton.add_state(false, false); // id: 1, is_initial: false, is_final: false
+        let s2 = automaton.add_state(false, false); // id: 2, is_initial: false, is_final: false
+        let s3 = automaton.add_state(false, false); // id: 3, is_initial: false, is_final: false
+        let s4 = automaton.add_state(false, true); // id: 4, is_initial: false, is_final: true
+
+        // Add transitions based on small.json
+        automaton.add_nfah_transition(s0, "a".to_string(), 0, s1); // from: 0, to: 1, label: ["a", 0]
+        automaton.add_nfah_transition(s1, "b".to_string(), 1, s2); // from: 1, to: 2, label: ["b", 1]
+        automaton.add_nfah_transition(s0, "a".to_string(), 0, s0); // from: 0, to: 0, label: ["a", 0]
+        automaton.add_nfah_transition(s0, "b".to_string(), 1, s0); // from: 0, to: 0, label: ["b", 1]
+        automaton.add_nfah_transition(s0, "c".to_string(), 0, s3); // from: 0, to: 3, label: ["c", 0]
+        automaton.add_nfah_transition(s3, "d".to_string(), 1, s4); // from: 3, to: 4, label: ["d", 1]
+
+        let mut dfas = Vec::with_capacity(2);
+        dfas.push(
+            automaton
+                .project(&enfa_state_arena, &enfa_transition_arena, 0)
+                .to_nfa_powerset(&nfa_state_arena, &nfa_transition_arena)
+                .determinize(),
+        );
+        dfas.push(
+            automaton
+                .project(&enfa_state_arena, &enfa_transition_arena, 1)
+                .to_nfa_powerset(&nfa_state_arena, &nfa_transition_arena)
+                .determinize(),
+        );
+
+        // Create a matcher from the DFA
+        let matchers = dfas
+            .into_iter()
+            .map(DFAEarliestPatternMatcher::new)
+            .collect_vec();
+
+        let mut input_seqs = vec![AppendOnlySequence::new(), AppendOnlySequence::new()];
+
+        // Create a matching filter
+        let mut filters = matchers
+            .into_iter()
+            .enumerate()
+            .map(|(i, matcher)| MatchingFilter::new(matcher, input_seqs[i].readable_view()))
+            .collect_vec();
+
+        // Process the input
+        input_seqs[0].append("a".to_string());
+        filters[0].consume_input();
+        input_seqs[0].append("a".to_string());
+        filters[0].consume_input();
+        input_seqs[0].append("c".to_string());
+        filters[0].consume_input();
+        input_seqs[0].append("a".to_string());
+        filters[0].consume_input();
+        input_seqs[0].append("a".to_string());
+        filters[0].consume_input();
+        input_seqs[0].append("c".to_string());
+        filters[0].consume_input();
+        input_seqs[0].close();
+        filters[0].consume_input();
+
+        // Process the input
+        input_seqs[1].append("a".to_string());
+        filters[1].consume_input();
+        input_seqs[1].append("d".to_string());
+        filters[1].consume_input();
+        input_seqs[1].append("d".to_string());
+        filters[1].consume_input();
+        input_seqs[1].close();
+        filters[1].consume_input();
+
+        // Check the output
+        let outputs = filters
+            .iter()
+            .map(|filter| filter.readable_view())
+            .collect_vec();
+        let output_slices = outputs
+            .iter()
+            .map(|output| output.readable_slice())
+            .collect_vec();
+
+        assert_eq!(output_slices[0].len(), 6);
+        assert_eq!(output_slices[0][0], Some("a".to_string()));
+        assert_eq!(output_slices[0][1], Some("a".to_string()));
+        assert_eq!(output_slices[0][2], Some("c".to_string()));
+        assert_eq!(output_slices[0][3], Some("a".to_string()));
+        assert_eq!(output_slices[0][4], Some("a".to_string()));
+        assert_eq!(output_slices[0][5], Some("c".to_string()));
+
+        assert_eq!(output_slices[1].len(), 3);
+        assert_eq!(output_slices[1][0], None);
+        assert_eq!(output_slices[1][1], Some("d".to_string()));
+        assert_eq!(output_slices[1][2], Some("d".to_string()));
     }
 }
