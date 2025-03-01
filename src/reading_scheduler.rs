@@ -75,8 +75,8 @@ mod tests {
     use super::*;
     use crate::automata::Automata;
     use crate::automata_runner::AppendOnlySequence;
-    use crate::hyper_pattern_matching::OnlineHyperPatternMatching;
     use crate::multi_stream_reader::StreamSource;
+    use crate::naive_hyper_pattern_matching::NaiveHyperPatternMatching;
     use crate::result_notifier::{MatchingInterval, MatchingResult, SharedBufferResultNotifier};
     use crate::shared_buffer::{SharedBuffer, SharedBufferSource};
     use std::collections::HashSet;
@@ -116,7 +116,7 @@ mod tests {
         let notifier = SharedBufferResultNotifier::new(result_buffer.make_source());
         let mut result_sink = result_buffer.make_sink();
 
-        let matching = OnlineHyperPatternMatching::<SharedBufferResultNotifier>::new(
+        let matching = NaiveHyperPatternMatching::<SharedBufferResultNotifier>::new(
             &automaton,
             notifier,
             vec![AppendOnlySequence::new(), AppendOnlySequence::new()],
