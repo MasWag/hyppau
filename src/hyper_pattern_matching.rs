@@ -246,8 +246,8 @@ where
     SingleMatching: SingleHyperPatternMatching<'a, Notifier>,
     Notifier: ResultNotifier + Clone,
 {
-    pub fn new(automaton: &'a NFAH<'a>, notifier: Notifier) -> Self {
-        let sequences = (0..automaton.dimensions)
+    pub fn new(automaton: &'a NFAH<'a>, notifier: Notifier, word_size: usize) -> Self {
+        let sequences = (0..word_size)
             .map(|_| AppendOnlySequence::new())
             .collect_vec();
 
