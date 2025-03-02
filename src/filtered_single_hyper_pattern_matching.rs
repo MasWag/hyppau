@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use itertools::Itertools;
 use log::{debug, trace};
 
@@ -75,7 +77,7 @@ pub struct NaiveFilteredSingleHyperPatternMatching<'a, Notifier: ResultNotifier>
     notifier: Notifier,
     input_streams: Vec<ReadableView<Option<String>>>,
     ids: Vec<usize>,
-    waiting_queue: Vec<StartPosition>,
+    waiting_queue: BTreeSet<StartPosition>,
 }
 
 impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifier>
@@ -93,11 +95,11 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
             ids.clone(),
         );
         let start_indices = vec![0; automaton.dimensions];
-        let mut waiting_queue = StartPosition { start_indices }
+        let waiting_queue = StartPosition { start_indices }
             .immediate_successors()
             .into_iter()
-            .collect_vec();
-        waiting_queue.sort_by(|a, b| a.cmp(b).reverse());
+            .collect();
+
         automata_runner.insert_from_initial_states(input_streams.clone());
 
         Self {
@@ -136,7 +138,7 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
         self.automata_runner.remove_masked_configurations();
         while self.automata_runner.current_configurations.is_empty() {
             while self.automata_runner.current_configurations.is_empty() {
-                let new_position = self.waiting_queue.pop();
+                let new_position = self.waiting_queue.pop_first();
                 trace!("new_position: {:?}", new_position);
                 // Start new matching trial
                 if let Some(new_position) = new_position {
@@ -148,13 +150,11 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
                             "not skipped"
                         })
                     );
-                    let mut valid_successors = self.compute_valid_successors(&new_position);
-                    trace!("valid_successors: {:?}", valid_successors);
+                    let valid_successors = self.compute_valid_successors(&new_position);
+
                     // Put the successors to the waiting queue
-                    self.waiting_queue.append(&mut valid_successors);
-                    // Optimization: we can optimize here by not pushing the skipped elements
-                    self.waiting_queue.sort_by(|a, b| a.cmp(b).reverse());
-                    self.waiting_queue.dedup();
+                    self.waiting_queue.extend(valid_successors);
+
                     if !self.is_skipped(&new_position) {
                         let mut input_streams = self.input_streams.clone();
                         for variable in 0..dimensions {

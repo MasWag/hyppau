@@ -1,4 +1,4 @@
-use std::cmp::Reverse;
+use std::{cmp::Reverse, collections::BTreeSet};
 
 use itertools::Itertools;
 
@@ -48,7 +48,7 @@ pub struct NaiveSingleHyperPatternMatching<'a, Notifier: ResultNotifier> {
     notifier: Notifier,
     input_streams: Vec<ReadableView<String>>,
     ids: Vec<usize>,
-    waiting_queue: Vec<Reverse<StartPosition>>,
+    waiting_queue: BTreeSet<Reverse<StartPosition>>,
 }
 
 impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
@@ -63,12 +63,11 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
         let mut automata_runner =
             PatternMatchingAutomataRunner::new(automaton, input_streams.clone());
         let start_indices = vec![0; automaton.dimensions];
-        let mut waiting_queue = StartPosition { start_indices }
+        let waiting_queue = StartPosition { start_indices }
             .immediate_successors()
             .into_iter()
             .map(Reverse)
-            .collect_vec();
-        waiting_queue.sort_by(|a, b| a.cmp(b).reverse());
+            .collect();
         automata_runner.insert_from_initial_states(input_streams.clone(), ids.clone());
 
         Self {
@@ -104,18 +103,18 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
         self.automata_runner.remove_non_waiting_configurations();
         while self.automata_runner.is_empty() {
             // Start new matching trial
-            if let Some(new_position) = self.waiting_queue.pop() {
-                let mut valid_successors = new_position
+            if let Some(new_position) = self.waiting_queue.pop_last() {
+                let valid_successors = new_position
                     .0
                     .immediate_successors()
                     .into_iter()
                     .filter(|successor| self.in_range(successor))
                     .map(Reverse)
                     .collect_vec();
+
                 // Put the successors to the waiting queue
-                self.waiting_queue.append(&mut valid_successors);
-                self.waiting_queue.sort();
-                self.waiting_queue.dedup();
+                self.waiting_queue.extend(valid_successors);
+
                 let mut input_streams = self.input_streams.clone();
                 for variable in 0..dimensions {
                     input_streams[variable]
@@ -207,8 +206,8 @@ mod tests {
         // Test the results
         let expected_results = vec![
             vec![MatchingInterval::new(0, 1), MatchingInterval::new(0, 1)],
-            vec![MatchingInterval::new(1, 1), MatchingInterval::new(0, 1)],
             vec![MatchingInterval::new(0, 1), MatchingInterval::new(1, 1)],
+            vec![MatchingInterval::new(1, 1), MatchingInterval::new(0, 1)],
             vec![MatchingInterval::new(1, 1), MatchingInterval::new(1, 1)],
         ];
         for expected_result in expected_results {

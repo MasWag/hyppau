@@ -1,4 +1,4 @@
-use std::cmp::Reverse;
+use std::{cmp::Reverse, collections::BTreeSet};
 
 use itertools::Itertools;
 
@@ -18,7 +18,7 @@ pub struct FJSSingleHyperPatternMatching<'a, Notifier: ResultNotifier> {
     notifier: Notifier,
     input_streams: Vec<ReadableView<String>>,
     ids: Vec<usize>,
-    waiting_queue: Vec<Reverse<StartPosition>>,
+    waiting_queue: BTreeSet<Reverse<StartPosition>>,
     /// The set of ignored starting positions by the skip values
     skipped_positions: Vec<Vec<usize>>,
     quick_search_skip_value: QuickSearchSkipValues,
@@ -37,12 +37,11 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
         let mut automata_runner =
             PatternMatchingAutomataRunner::new(automaton, input_streams.clone());
         let start_indices = vec![0; automaton.dimensions];
-        let mut waiting_queue = StartPosition { start_indices }
+        let waiting_queue = StartPosition { start_indices }
             .immediate_successors()
             .into_iter()
             .map(Reverse)
-            .collect_vec();
-        waiting_queue.sort();
+            .collect();
         automata_runner.insert_from_initial_states(input_streams.clone(), ids.clone());
 
         let skipped_positions = (0..automaton.dimensions).map(|_| Vec::new()).collect_vec();
@@ -98,13 +97,11 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
 
         while self.automata_runner.is_empty() {
             // Find a new valid starting position
-            if let Some(position) = self.waiting_queue.pop() {
-                let mut valid_successors = self.compute_valid_successors(&position.0);
+            if let Some(position) = self.waiting_queue.pop_last() {
+                let valid_successors = self.compute_valid_successors(&position.0);
 
                 // Put the successors to the waiting queue
-                self.waiting_queue.append(&mut valid_successors);
-                self.waiting_queue.sort();
-                self.waiting_queue.dedup();
+                self.waiting_queue.extend(valid_successors);
 
                 if self.is_valid_position(&position.0) {
                     let mut input_streams = self.input_streams.clone();
