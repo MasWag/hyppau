@@ -58,3 +58,16 @@ setup() {
     diff "${BATS_TMPDIR}/abcd-400.naive.sorted" "${BATS_TMPDIR}/abcd-400.online_filtered.sorted"
     [ $status -eq 0 ]
 }
+
+@test "Compare the result of Naive and FJSFiltered" {
+    cd "$PROJECT_ROOT"
+
+    run cargo run --release -- -f "${EXAMPLE_DIR}/small.json" -i "${BATS_TMPDIR}/abcd-400.input" -m naive -o "${BATS_TMPDIR}/abcd-400.naive"
+    run cargo run --release -- -f "${EXAMPLE_DIR}/small.json" -i "${BATS_TMPDIR}/abcd-400.input" -m fjs-filtered -o "${BATS_TMPDIR}/abcd-400.fjs_filtered"
+
+    sort "${BATS_TMPDIR}/abcd-400.naive" | uniq > "${BATS_TMPDIR}/abcd-400.naive.sorted"
+    sort "${BATS_TMPDIR}/abcd-400.fjs_filtered" | uniq > "${BATS_TMPDIR}/abcd-400.fjs_filtered.sorted"
+
+    diff "${BATS_TMPDIR}/abcd-400.naive.sorted" "${BATS_TMPDIR}/abcd-400.fjs_filtered.sorted"
+    [ $status -eq 0 ]
+}

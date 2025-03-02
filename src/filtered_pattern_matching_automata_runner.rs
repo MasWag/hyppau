@@ -12,8 +12,6 @@ pub struct FilteredPatternMatchingAutomataRunner<'a> {
     automaton: &'a NFAH<'a>,
     /// Each configuration is unique in the set (thanks to `Hash`/`Eq`).
     pub current_configurations: HashSet<FilteredPatternMatchingAutomataConfiguration<'a>>,
-    /// The possible streams to be used
-    views: Vec<ReadableView<Option<String>>>,
     /// The list of IDs of words we are handling in this configuration.
     ids: Vec<usize>,
 }
@@ -29,16 +27,12 @@ impl<'a> FilteredPatternMatchingAutomataRunner<'a> {
     /// # Returns
     ///
     /// A new `FilteredPatternMatchingAutomataRunner` with initial configurations set up.
-    pub fn new(
-        automaton: &'a NFAH<'a>,
-        views: Vec<ReadableView<Option<String>>>,
-        ids: Vec<usize>,
-    ) -> Self {
+    pub fn new(automaton: &'a NFAH<'a>, ids: Vec<usize>) -> Self {
+        assert_eq!(automaton.dimensions, ids.len());
         let current_configurations = HashSet::new();
         Self {
             automaton,
             current_configurations,
-            views,
             ids,
         }
     }

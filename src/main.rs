@@ -37,6 +37,7 @@ enum Mode {
     Fjs,
     NaiveFiltered,
     OnlineFiltered,
+    FjsFiltered,
 }
 
 /// A prototype tool for Hyper Pattern Matching
@@ -79,6 +80,7 @@ mod dfa_earliest_pattern_matcher;
 mod filtered_hyper_pattern_matching;
 mod filtered_pattern_matching_automata_runner;
 mod filtered_single_hyper_pattern_matching;
+mod fjs_filtered_single_hyper_pattern_matching;
 mod fjs_hyper_pattern_matching;
 mod fjs_single_hyper_pattern_matching;
 mod hyper_pattern_matching;
@@ -271,6 +273,18 @@ fn main() {
             let hyper_pattern_matching =
                 FilteredHyperPatternMatching::<
                     OnlineFilteredSingleHyperPatternMatching<ResultNotifierType>,
+                    ResultNotifierType,
+                >::new(&automaton, result_notifier, multi_stream_reader.size());
+            let mut reading_scheduler =
+                ReadingScheduler::new(hyper_pattern_matching, multi_stream_reader);
+            reading_scheduler.run();
+        }
+        Mode::FjsFiltered => {
+            use crate::filtered_hyper_pattern_matching::FilteredHyperPatternMatching;
+            use crate::fjs_filtered_single_hyper_pattern_matching::FJSFilteredSingleHyperPatternMatching;
+            let hyper_pattern_matching =
+                FilteredHyperPatternMatching::<
+                    FJSFilteredSingleHyperPatternMatching<ResultNotifierType>,
                     ResultNotifierType,
                 >::new(&automaton, result_notifier, multi_stream_reader.size());
             let mut reading_scheduler =

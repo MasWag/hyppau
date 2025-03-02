@@ -88,11 +88,8 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
         input_streams: Vec<ReadableView<Option<String>>>,
         ids: Vec<usize>,
     ) -> Self {
-        let mut automata_runner = FilteredPatternMatchingAutomataRunner::new(
-            automaton,
-            input_streams.clone(),
-            ids.clone(),
-        );
+        let mut automata_runner =
+            FilteredPatternMatchingAutomataRunner::new(automaton, ids.clone());
         let start_indices = vec![0; automaton.dimensions];
         let waiting_queue = StartPosition { start_indices }
             .immediate_successors()
@@ -215,13 +212,11 @@ impl<Notifier: ResultNotifier> NaiveFilteredSingleHyperPatternMatching<'_, Notif
                                 successor.start_indices[i] != examined_position.start_indices[i]
                             })
                         {
-                            // trace!("pushed to waiting_queue");
+                            // We examine only if `examined_position` is not skipped or one of the previously skipped positions was increased
                             waiting_queue.push(successor);
-                        } else {
-                            // trace!("skipped index must be updated {:?} -> {:?} ({:?})", examined_position, successor, skipped_streams);
                         }
                     } else {
-                        // trace!("pushed to valid_successors");
+                        // The traces are valid if it is not skipped
                         valid_successors.push(successor);
                     }
                 });

@@ -1,4 +1,4 @@
-use crate::automata::{NFAHState, NFAHTransition, NFAH};
+use crate::automata::NFAH;
 use crate::filtered_hyper_pattern_matching::FilteredHyperPatternMatching;
 use crate::filtered_single_hyper_pattern_matching::NaiveFilteredSingleHyperPatternMatching;
 use crate::hyper_pattern_matching::HyperPatternMatching;
@@ -8,32 +8,7 @@ use crate::result_notifier::{MatchingResult, SharedBufferResultNotifier};
 use crate::shared_buffer::SharedBuffer;
 use typed_arena::Arena;
 
-use super::utils::{verify_ids, verify_intervals};
-
-/// Helper function to create a standard test automaton with 2 dimensions
-fn create_small_automaton<'a>(
-    state_arena: &'a Arena<NFAHState<'a>>,
-    transition_arena: &'a Arena<NFAHTransition<'a>>,
-) -> NFAH<'a> {
-    let mut automaton = NFAH::new(state_arena, transition_arena, 2);
-
-    // Create states
-    let s0 = automaton.add_state(true, false); // Initial state
-    let s1 = automaton.add_state(false, false);
-    let s2 = automaton.add_state(false, false);
-    let s3 = automaton.add_state(false, false);
-    let s4 = automaton.add_state(false, true); // Final state
-
-    // Add transitions
-    automaton.add_nfah_transition(s0, "a".to_string(), 0, s1); // from: 0, to: 1, label: ["a", 0]
-    automaton.add_nfah_transition(s1, "b".to_string(), 1, s2); // from: 1, to: 2, label: ["b", 1]
-    automaton.add_nfah_transition(s0, "a".to_string(), 0, s0); // from: 0, to: 0, label: ["a", 0]
-    automaton.add_nfah_transition(s0, "b".to_string(), 1, s0); // from: 0, to: 0, label: ["b", 1]
-    automaton.add_nfah_transition(s0, "c".to_string(), 0, s3); // from: 0, to: 3, label: ["c", 0]
-    automaton.add_nfah_transition(s3, "d".to_string(), 1, s4); // from: 3, to: 4, label: ["d", 1]
-
-    automaton
-}
+use super::utils::{create_small_automaton, verify_ids, verify_intervals};
 
 /// Helper function to create a FilteredHyperPatternMatching instance with a result sink
 fn create_matching<'a>(
