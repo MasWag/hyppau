@@ -169,25 +169,80 @@ impl<Notifier: ResultNotifier> FJSSingleHyperPatternMatching<'_, Notifier> {
         true
     }
 
+    /// Returns `true` if this position is not skippable with quick_search
+    fn try_quick_search_skip(&mut self, position: &StartPosition) -> bool {
+        // Check if we can apply Quick Search optimization
+        let mut should_skip = false;
+        let mut positions_to_skip = Vec::new();
+
+        for var in 0..self.dimensions() {
+            let start_index = position.start_indices[var];
+            let shortest_matching_length = self
+                .quick_search_skip_value
+                .shortest_accepted_word_length_map[var];
+
+            if shortest_matching_length > 0 {
+                let stream = self.get_input_stream(var);
+                let slice_shortest_end_idx =
+                    start_index + shortest_matching_length - 1 - stream.start;
+                let slice_next_idx = start_index + shortest_matching_length - stream.start;
+
+                if slice_next_idx < stream.len() {
+                    let readable_data = stream.readable_slice();
+
+                    if slice_next_idx < readable_data.len() {
+                        let last_accepted_words =
+                            &self.quick_search_skip_value.last_accepted_word[var];
+
+                        if !last_accepted_words.contains(&readable_data[slice_shortest_end_idx]) {
+                            let skipped_width = self
+                                .quick_search_skip_value
+                                .skip_value(&readable_data[slice_next_idx], var);
+
+                            for i in 0..skipped_width {
+                                positions_to_skip.push((var, start_index + i));
+                            }
+
+                            should_skip = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if should_skip {
+            // Apply the skips
+            for (var, pos) in positions_to_skip {
+                if var < self.skipped_positions.len() {
+                    self.skipped_positions[var].push(pos);
+                }
+            }
+        }
+
+        !should_skip
+    }
+
     fn compute_valid_successors(
-        &self,
+        &mut self,
         start_position: &StartPosition,
     ) -> Vec<Reverse<StartPosition>> {
         let mut waiting_queue = Vec::new();
         waiting_queue.push(start_position.clone());
         let mut valid_successors = Vec::new();
         while let Some(examined_position) = waiting_queue.pop() {
-            examined_position
+            let successor_candidates = examined_position
                 .immediate_successors()
                 .into_iter()
                 .filter(|successor| self.in_range(successor))
-                .for_each(|successor| {
-                    if self.is_valid_position(&successor) {
-                        valid_successors.push(Reverse(successor));
-                    } else {
-                        waiting_queue.push(successor);
-                    }
-                });
+                .collect_vec();
+            for successor in successor_candidates.into_iter() {
+                if self.is_valid_position(&successor) && self.try_quick_search_skip(&successor) {
+                    valid_successors.push(Reverse(successor));
+                } else {
+                    waiting_queue.push(successor);
+                }
+            }
         }
 
         valid_successors
