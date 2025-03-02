@@ -8,22 +8,11 @@ This is the source code repository for hyper pattern matching — a prototype to
 Usage
 -----
 
-### Options
-
-- **-h**, **--help**: Print a help message.
-- **-q**, **--quiet**: Quiet mode. Causes any results to be suppressed.
-- **-V**, **--version**: Print the version.
-- **-i** *file*, **--input** *file*: Read the log from the *file*. The i-th input file is labeled with `i` in the output.
-- **-f** *file*, **--automaton** *file*: Read an automaton written in JSON format from *file*.
-- **-g**, **--graphviz**: Print the automaton in Graphviz DOT format.
-- **-o** *file*, **--output** *file*: Write the output to *file* instead of stdout.
-- **-m** *mode*, **--mode** *mode*: Choose the matching mode: naive, online, fjs, or naive-filtered (default: naive).
-- **-v**, **--verbose**: Increase verbosity. Use `-v` for debug-level messages and `-vv` for trace-level messages.
-
 ### Synopsis
 
 ```bash
-hyper-pattern-matching [OPTIONS] -f FILE [FILE...]
+cargo run -r -- [OPTIONS] -f FILE [FILE...]
+./target/release/hyper_pattern_matching [OPTIONS] -f FILE [FILE...]
 ```
 
 ### Options
@@ -35,7 +24,8 @@ hyper-pattern-matching [OPTIONS] -f FILE [FILE...]
 - **-f** *file*, **--automaton** *file*: Read an automaton written in JSON format from *file*.
 - **-g**, **--graphviz**: Print the automaton in Graphviz DOT format.
 - **-o** *file*, **--output** *file*: Write the output to *file* instead of stdout.
-- **-v**, **--verbose**: Increase verbosity. Use `-v` for debug-level logging and `-vv` for trace-level logging.
+- **-m** *mode*, **--mode** *mode*: Choose the matching mode: naive, online, fjs, naive-filtered, online-filtered, or fjs-filtered. (default: naive).
+- **-v**, **--verbose**: Increase verbosity. Use `-v` for debug-level messages and `-vv` for trace-level messages.
 
 ### Automaton JSON Format
 
@@ -85,16 +75,16 @@ Installation
 3. **Run the Binary:**
    The compiled executable will be located in `target/release/`. You can run it by `cargo run --release`, or directly:
    ```bash
-   ./target/release/hyper-pattern-matching
+   ./target/release/hyper_pattern_matching
    ```
    For easier access, you might copy it to a directory in your PATH:
    ```bash
-   cp target/release/hyper-pattern-matching /usr/local/bin/
+   cp target/release/hyper_pattern_matching /usr/local/bin/
    ```
 
 Examples
 --------
 
 ```bash
-hyper-pattern-matching -f automaton.json -i logfile1.txt -i logfile2.txt
+hyper_pattern_matching -f ./examples/small.json -i ./examples/small1.txt -i ./examples/small2.txt
 ```
