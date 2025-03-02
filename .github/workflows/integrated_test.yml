@@ -1,0 +1,33 @@
+name: Integrated Test
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_and_integrated_test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install BATS and dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bats gawk
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Build project
+      run: cargo build --release
+
+    - name: Run BATS tests
+      working-directory: bats
+      run: bats .
