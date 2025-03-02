@@ -1,7 +1,7 @@
 use crate::result_notifier::{MatchingInterval, MatchingResult};
 
 /// Helper function to verify matching results against expected intervals
-pub fn verify_intervals(results: &Vec<MatchingResult>, expected_intervals: &[Vec<usize>]) {
+pub fn verify_intervals(results: &[MatchingResult], expected_intervals: &[Vec<usize>]) {
     assert_eq!(
         results.len(),
         expected_intervals.len(),
@@ -26,7 +26,7 @@ pub fn verify_intervals(results: &Vec<MatchingResult>, expected_intervals: &[Vec
 }
 
 /// Helper function to verify matching results against expected ids
-pub fn verify_ids(results: &Vec<MatchingResult>, expected_ids: &[Vec<usize>]) {
+pub fn verify_ids(results: &[MatchingResult], expected_ids: &[Vec<usize>]) {
     assert_eq!(
         results.len(),
         expected_ids.len(),

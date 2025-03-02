@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 
-use itertools::Itertools;
 use log::{debug, trace};
 
 use crate::{
@@ -242,6 +241,7 @@ mod tests {
         result_notifier::{MatchingResult, SharedBufferResultNotifier},
         shared_buffer::SharedBuffer,
     };
+    use itertools::Itertools;
     use typed_arena::Arena;
 
     #[test]

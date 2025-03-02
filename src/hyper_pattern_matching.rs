@@ -70,6 +70,10 @@ impl<'a> NFAHRunner<'a, PatternMatchingAutomataConfiguration<'a>>
         self.current_configurations.insert(configuration);
     }
 
+    fn extend(&mut self, configurations: Vec<PatternMatchingAutomataConfiguration<'a>>) {
+        self.current_configurations.extend(configurations);
+    }
+
     /// Returns the number of unique configurations in the `HashSet`.
     fn len(&self) -> usize {
         self.current_configurations.len()
@@ -110,7 +114,7 @@ impl<'a> NFAHRunner<'a, PatternMatchingAutomataConfiguration<'a>>
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug)]
 pub struct PatternMatchingAutomataConfiguration<'a> {
     /// The current state of the automaton.
     pub current_state: &'a NFAHState<'a>,
@@ -124,6 +128,15 @@ pub struct PatternMatchingAutomataConfiguration<'a> {
 
     /// The list of IDs of words we are handling in this configuration.
     pub ids: Vec<usize>,
+}
+
+impl Hash for PatternMatchingAutomataConfiguration<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.current_state.hash(state);
+        self.matching_begin.hash(state);
+        // We ignore input_sequence when computing the hash value.
+        self.ids.hash(state);
+    }
 }
 
 impl<'a> PatternMatchingAutomataConfiguration<'a> {

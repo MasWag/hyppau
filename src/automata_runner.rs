@@ -21,6 +21,13 @@ pub trait NFAHRunner<'a, C: NFAHConfiguration<'a> + std::cmp::Eq + std::hash::Ha
     /// * `configuration` - The new configuration to add.
     fn insert(&mut self, configuration: C);
 
+    /// Inserts new configurations into the runner's internal set.
+    ///
+    /// # Arguments
+    ///
+    /// * `configurations` - The new configurations to add.
+    fn extend(&mut self, configurations: Vec<C>);
+
     /// Returns the current number of unique configurations tracked by the runner.
     fn len(&self) -> usize;
 
@@ -66,9 +73,7 @@ pub trait NFAHRunner<'a, C: NFAHConfiguration<'a> + std::cmp::Eq + std::hash::Ha
             }
 
             // Insert all newly discovered configurations back into our set.
-            for c in new_configurations.drain(..) {
-                self.insert(c);
-            }
+            self.extend(new_configurations);
         }
 
         initial_size != current_size
@@ -121,6 +126,10 @@ impl<'a> NFAHRunner<'a, SimpleAutomataConfiguration<'a>> for SimpleAutomataRunne
     /// (i.e., those that are `Eq`) will be automatically skipped.
     fn insert(&mut self, configuration: SimpleAutomataConfiguration<'a>) {
         self.current_configurations.insert(configuration);
+    }
+
+    fn extend(&mut self, configurations: Vec<SimpleAutomataConfiguration<'a>>) {
+        self.current_configurations.extend(configurations);
     }
 
     /// Returns the number of unique configurations in the `HashSet`.
