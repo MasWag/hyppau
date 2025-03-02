@@ -83,8 +83,7 @@ impl<'a, Notifier: ResultNotifier> FJSHyperPatternMatching<'a, Notifier> {
         notifier: Notifier,
         sequences: Vec<AppendOnlySequence<String>>,
     ) -> Self {
-        let as_readable_view = sequences.iter().map(|s| s.readable_view()).collect();
-        let mut automata_runner = PatternMatchingAutomataRunner::new(automaton, as_readable_view);
+        let mut automata_runner = PatternMatchingAutomataRunner::new(automaton);
         let read_size = vec![0; sequences.len()];
         let eof = vec![false; sequences.len()];
         let start_indices = vec![0; automaton.dimensions];

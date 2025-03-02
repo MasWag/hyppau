@@ -95,7 +95,7 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
         input_streams: Vec<ReadableView<String>>,
         ids: Vec<usize>,
     ) -> Self {
-        let automata_runner = PatternMatchingAutomataRunner::new(automaton, input_streams.clone());
+        let automata_runner = PatternMatchingAutomataRunner::new(automaton);
 
         Self {
             automata_runner,

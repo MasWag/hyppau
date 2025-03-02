@@ -34,8 +34,7 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
         input_streams: Vec<ReadableView<String>>,
         ids: Vec<usize>,
     ) -> Self {
-        let mut automata_runner =
-            PatternMatchingAutomataRunner::new(automaton, input_streams.clone());
+        let mut automata_runner = PatternMatchingAutomataRunner::new(automaton);
         let start_indices = vec![0; automaton.dimensions];
         let waiting_queue = StartPosition { start_indices }
             .immediate_successors()

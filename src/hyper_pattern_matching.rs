@@ -26,8 +26,6 @@ pub struct PatternMatchingAutomataRunner<'a> {
     automaton: &'a NFAH<'a>,
     /// Each configuration is unique in the set (thanks to `Hash`/`Eq`).
     pub current_configurations: HashSet<PatternMatchingAutomataConfiguration<'a>>,
-    /// The possible streams to be used
-    views: Vec<ReadableView<String>>,
 }
 
 impl<'a> PatternMatchingAutomataRunner<'a> {
@@ -41,12 +39,11 @@ impl<'a> PatternMatchingAutomataRunner<'a> {
     /// # Returns
     ///
     /// A new `PatternMatchingAutomataRunner` with initial configurations set up.
-    pub fn new(automaton: &'a NFAH<'a>, views: Vec<ReadableView<String>>) -> Self {
+    pub fn new(automaton: &'a NFAH<'a>) -> Self {
         let current_configurations = HashSet::new();
         Self {
             automaton,
             current_configurations,
-            views,
         }
     }
 
@@ -398,9 +395,8 @@ mod tests {
         sequences[1].append("b".to_string());
         sequences[0].append("c".to_string());
         sequences[1].append("d".to_string());
-        let as_readable_view = sequences.iter().map(|s| s.readable_view()).collect();
 
-        let mut runner = PatternMatchingAutomataRunner::new(&automata, as_readable_view);
+        let mut runner = PatternMatchingAutomataRunner::new(&automata);
         runner.insert_from_initial_states(
             sequences.iter().map(|s| s.readable_view()).collect(),
             vec![0, 1],
