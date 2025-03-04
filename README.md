@@ -1,9 +1,9 @@
-Hyper Pattern Matching
-======================
+HypPAu — HYPer Pattern matching with AUtomata
+==============================================
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
 
-This is the source code repository for hyper pattern matching — a prototype tool for Hyper Pattern Matching.
+This is the source code repository for HypPAu (pronounced the same as "hippo")— a prototype tool for Hyper Pattern Matching.
 
 Usage
 -----
@@ -12,7 +12,7 @@ Usage
 
 ```bash
 cargo run -r -- [OPTIONS] -f FILE [FILE...]
-./target/release/hyper_pattern_matching [OPTIONS] -f FILE [FILE...]
+./target/release/hyppau [OPTIONS] -f FILE [FILE...]
 ```
 
 ### Options
@@ -75,16 +75,19 @@ Installation
 3. **Run the Binary:**
    The compiled executable will be located in `target/release/`. You can run it by `cargo run --release`, or directly:
    ```bash
-   ./target/release/hyper_pattern_matching
+   ./target/release/hyppau
    ```
    For easier access, you might copy it to a directory in your PATH:
    ```bash
-   cp target/release/hyper_pattern_matching /usr/local/bin/
+   cp target/release/hyppau /usr/local/bin/
    ```
 
 Examples
 --------
 
 ```bash
-hyper_pattern_matching -f ./examples/small.json -i ./examples/small1.txt -i ./examples/small2.txt
+hyppau -f ./examples/small.json -i ./examples/small1.txt -i ./examples/small2.txt
 ```
+
+## License
+HypPAu is licensed under the [GNU General Public License v3.0](./LICENSE).
