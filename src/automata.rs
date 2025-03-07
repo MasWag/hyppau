@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use typed_arena::Arena;
@@ -474,10 +474,104 @@ impl<L> Debug for Automata<'_, L> {
     }
 }
 
+impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
+    /// Builds the (intersection) product automaton of `self` and `other`.
+    ///
+    /// Both NFAs must be over the same alphabet type (`String`) with the same dimensions.
+    /// The resulting automaton is also an `NFA<'b>` using new arenas.
+    ///
+    /// Intersection semantics:
+    ///  - The product state is final if both component states are final.
+    ///  - A transition with label ℓ from (s1, s2) to (t1, t2) exists if
+    ///    there is a transition labeled ℓ from s1 -> t1 in `self`
+    ///    **and** a transition labeled ℓ from s2 -> t2 in `other`.
+    pub fn product<'b>(
+        &self,
+        other: &Automata<'a, L>,
+        new_states_arena: &'b Arena<State<'b, L>>,
+        new_trans_arena: &'b Arena<Transition<'b, L>>,
+    ) -> Automata<'b, L> {
+        if self.dimensions != other.dimensions {
+            panic!(
+                "The two automata must have the same dimensions: expected {}, got {}",
+                self.dimensions, other.dimensions
+            );
+        }
+        // create the new automaton (product automaton).
+        let mut product_automata = Automata::<L>::new(new_states_arena, new_trans_arena, 1);
+
+        // We'll map (s1_ptr, s2_ptr) -> newly created product state.
+        let mut pair_to_state = HashMap::new();
+        let mut queue = VecDeque::new();
+
+        // 1) Create product initial states from all pairs of (init1, init2)
+        for &init1 in &self.initial_states {
+            for &init2 in &other.initial_states {
+                let is_final = init1.is_final && init2.is_final;
+                let prod_init = product_automata.add_state(true, is_final);
+                pair_to_state.insert((init1 as *const _, init2 as *const _), prod_init);
+                queue.push_back((init1, init2));
+            }
+        }
+
+        // 2) BFS in the space of (s1, s2) pairs
+        while let Some((old_s1, old_s2)) = queue.pop_front() {
+            // The product state we already created:
+            let new_current = pair_to_state[&(old_s1 as *const _, old_s2 as *const _)];
+
+            // Gather transitions by label for each side.
+            let mut transitions_1: HashMap<&L, Vec<&State<'_, L>>> = HashMap::new();
+            for &t1 in old_s1.transitions.borrow().iter() {
+                transitions_1
+                    .entry(&t1.label)
+                    .or_default()
+                    .push(t1.next_state);
+            }
+
+            let mut transitions_2: HashMap<&L, Vec<&State<'_, L>>> = HashMap::new();
+            for &t2 in old_s2.transitions.borrow().iter() {
+                transitions_2
+                    .entry(&t2.label)
+                    .or_default()
+                    .push(t2.next_state);
+            }
+
+            // For each label that appears in both transition sets, cross-product all possible next states.
+            for (lbl, nexts1) in &transitions_1 {
+                if let Some(nexts2) = transitions_2.get(lbl) {
+                    for &n1 in nexts1 {
+                        for &n2 in nexts2 {
+                            let key = (n1 as *const _, n2 as *const _);
+                            let new_next = match pair_to_state.get(&key) {
+                                Some(&existing) => existing,
+                                None => {
+                                    let is_fin = n1.is_final && n2.is_final;
+                                    let st_new = product_automata.add_state(false, is_fin);
+                                    pair_to_state.insert(key, st_new);
+                                    queue.push_back((n1, n2));
+                                    st_new
+                                }
+                            };
+                            // Add the transition in the product.
+                            product_automata.add_transition(new_current, (*lbl).clone(), new_next);
+                        }
+                    }
+                }
+            }
+        }
+
+        product_automata
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::automata::NFAH;
+    use crate::{
+        automata::NFAH,
+        automata_runner::{AppendOnlySequence, NFAHRunner, SimpleAutomataRunner},
+    };
+    use itertools::Itertools;
     use typed_arena::Arena;
 
     #[test]
@@ -673,6 +767,130 @@ mod tests {
         assert!(
             nfa3.is_empty(),
             "Final state is unreachable => empty language."
+        );
+    }
+
+    #[test]
+    fn test_product() {
+        use typed_arena::Arena;
+
+        // Build first NFAH: accepts "ab" or "aab" (small example)
+        //
+        //  States: s0 (initial), s1, s2 (final)
+        //  Transitions:
+        //    s0 --"a"--> s1
+        //    s1 --"b"--> s2
+        //    s0 --"a"--> s0  (so it can read multiple 'a's before a single 'b'?)
+        //  => Accepts strings of one or more 'a' followed by a single 'b'
+        let arena_s1 = Arena::new();
+        let arena_t1 = Arena::new();
+        let mut nfah1 = NFAH::new(&arena_s1, &arena_t1, 1);
+
+        let s0_1 = nfah1.add_state(true, false);
+        let s1_1 = nfah1.add_state(false, false);
+        let s2_1 = nfah1.add_state(false, true); // final
+
+        // transitions for nfah1
+        nfah1.add_transition(s0_1, ("a".to_string(), 0), s1_1);
+        nfah1.add_transition(s1_1, ("b".to_string(), 0), s2_1);
+        // optional loop to allow multiple 'a's
+        nfah1.add_transition(s0_1, ("a".to_string(), 0), s0_1);
+
+        // Build second NFAH: accepts strings like "ab" or "abc"
+        //
+        //   States: p0 (initial), p1, p2 (final), p3 (non-final)
+        //   Transitions:
+        //       p0 --"a"--> p0
+        //       p0 --"a"--> p1
+        //       p1 --"b"--> p2 (final)
+        //       p1 --"b"--> p3 (non-final)
+        //       p3 --"c"--> p2 (final)
+        //   => Accepts strings that start with ≥1 'a' and then have either "b" or "bc" to reach a final state.
+        let arena_s2 = Arena::new();
+        let arena_t2 = Arena::new();
+        let mut nfah2 = NFAH::new(&arena_s2, &arena_t2, 1);
+
+        let p0_2 = nfah2.add_state(true, false);
+        let p1_2 = nfah2.add_state(false, false);
+        let p2_2 = nfah2.add_state(false, true); // final
+        let p3_2 = nfah2.add_state(false, false);
+
+        // transitions for nfah2
+        nfah2.add_transition(p0_2, ("a".to_string(), 0), p0_2);
+        nfah2.add_transition(p0_2, ("a".to_string(), 0), p1_2);
+        nfah2.add_transition(p1_2, ("b".to_string(), 0), p2_2);
+        nfah2.add_transition(p1_2, ("b".to_string(), 0), p3_2);
+        // transition from p3 leads to p2 on "c"
+        nfah2.add_transition(p3_2, ("c".to_string(), 0), p2_2);
+
+        // Build two product automata:
+        //  - The intersection product (final state if both components are final)
+        //  - The union product (final state if either component is final)
+        let product_s_arena_inter = Arena::new();
+        let product_t_arena_inter = Arena::new();
+        let product_nfah = nfah1.product(&nfah2, &product_s_arena_inter, &product_t_arena_inter);
+        assert_eq!(product_nfah.dimensions, nfah1.dimensions);
+
+        // Both product automata should be non-empty and accept "ab" (shortest accepted word of length 2)
+        assert!(
+            !product_nfah.is_empty(),
+            "Intersection product should not be empty."
+        );
+        let length_inter = product_nfah.shortest_accepted_word_length();
+        assert_eq!(
+            length_inter, 2,
+            "Shortest word in the intersection is 'ab' of length 2."
+        );
+
+        {
+            // 'ab' must be accepted
+            let mut input_sequence = AppendOnlySequence::new();
+            let mut intersection_runner =
+                SimpleAutomataRunner::new(&product_nfah, vec![input_sequence.readable_view()]);
+            intersection_runner
+                .insert_from_initial_states(vec![input_sequence.readable_view()], vec![0]);
+            input_sequence.append("a".to_string());
+            intersection_runner.consume();
+            input_sequence.append("b".to_string());
+            intersection_runner.consume();
+            assert!(!intersection_runner
+                .current_configurations
+                .iter()
+                .filter(|conf| conf.current_state.is_final)
+                .collect_vec()
+                .is_empty())
+        }
+        // For further verification, count the number of final states reached in each product automaton.
+        // In our example:
+        //   - Under intersection semantics, only (s2, p2) is final.
+        //   - Under union semantics, both (s2, p2) and (s2, p3) become final.
+        fn count_final_states(nfah: &NFAH) -> usize {
+            use std::collections::{HashSet, VecDeque};
+            let mut visited = HashSet::new();
+            let mut queue = VecDeque::new();
+            for &st in &nfah.initial_states {
+                queue.push_back(st);
+                visited.insert(st as *const _);
+            }
+            let mut count = 0;
+            while let Some(st) = queue.pop_front() {
+                if st.is_final {
+                    count += 1;
+                }
+                for &tr in st.transitions.borrow().iter() {
+                    let nxt_ptr = tr.next_state as *const _;
+                    if visited.insert(nxt_ptr) {
+                        queue.push_back(tr.next_state);
+                    }
+                }
+            }
+            count
+        }
+
+        let final_count_inter = count_final_states(&product_nfah);
+        assert_eq!(
+            final_count_inter, 1,
+            "Intersection product should have exactly one final state."
         );
     }
 }
