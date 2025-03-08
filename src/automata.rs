@@ -780,6 +780,178 @@ impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
     }
 }
 
+/// Union construction for automata.
+///
+/// Each union state is represented as a pair `(Option<s>, Option<t>)`, where:
+/// - `Some(s)` means automaton A is active,
+/// - `Some(t)` means automaton B is active,
+/// - A missing component (`None`) indicates that automaton has “fallen” into a sink.
+///
+/// Transition rules:
+/// - If both automata can move on label `a`, add only synchronous transitions:
+///      ((Some(s), Some(t)), a, (Some(s'), Some(t')))
+/// - If only automaton A can move, add a transition:
+///      ((Some(s), Some(t)), a, (Some(s'), None))
+///   and in a sink state (Some(s), None), add self-loops driven by moves in A,
+///   omitting transitions that would lead to (None, None).
+/// - Similarly for automaton B.
+/// - A state is final if at least one active component is final.
+impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
+    pub fn union<'b>(
+        automata_a: &Automata<'a, L>,
+        automata_b: &Automata<'a, L>,
+        new_states_arena: &'b Arena<State<'b, L>>,
+        new_trans_arena: &'b Arena<Transition<'b, L>>,
+    ) -> Automata<'b, L> {
+        // Use the larger dimension.
+        let new_dim = std::cmp::max(automata_a.dimensions, automata_b.dimensions);
+        let mut new_aut = Automata::new(new_states_arena, new_trans_arena, new_dim);
+
+        // Represent a union state as (Option<&AState>, Option<&BState>)
+        type UnionKey<'a, L> = (Option<&'a State<'a, L>>, Option<&'a State<'a, L>>);
+
+        let mut state_map: HashMap<UnionKey<'a, L>, &State<'b, L>> = HashMap::new();
+        let mut worklist: VecDeque<UnionKey<'a, L>> = VecDeque::new();
+
+        // Initial union states: Cartesian product of initial states.
+        for &s in &automata_a.initial_states {
+            for &t in &automata_b.initial_states {
+                let key = (Some(s), Some(t));
+                if let std::collections::hash_map::Entry::Vacant(e) = state_map.entry(key) {
+                    let is_final = s.is_final || t.is_final;
+                    let new_state = new_aut.add_state(true, is_final);
+                    e.insert(new_state);
+                    worklist.push_back(key);
+                }
+            }
+        }
+
+        // Process each union state.
+        while let Some(key) = worklist.pop_front() {
+            let current_state = state_map[&key];
+            let mut labels = HashSet::new();
+            if let Some(s) = key.0 {
+                for tr in s.get_transitions().iter() {
+                    labels.insert(tr.label.clone());
+                }
+            }
+            if let Some(t) = key.1 {
+                for tr in t.get_transitions().iter() {
+                    labels.insert(tr.label.clone());
+                }
+            }
+
+            for label in labels.into_iter() {
+                let trans_a: Vec<_> = if let Some(s) = key.0 {
+                    s.get_transitions()
+                        .iter()
+                        .filter(|tr| tr.label == label)
+                        .copied()
+                        .collect()
+                } else {
+                    vec![]
+                };
+                let trans_b: Vec<_> = if let Some(t) = key.1 {
+                    t.get_transitions()
+                        .iter()
+                        .filter(|tr| tr.label == label)
+                        .copied()
+                        .collect()
+                } else {
+                    vec![]
+                };
+
+                if !trans_a.is_empty() && !trans_b.is_empty() {
+                    // Both can move: add synchronous transitions.
+                    for tr_a in &trans_a {
+                        for tr_b in &trans_b {
+                            let new_key = (Some(tr_a.next_state), Some(tr_b.next_state));
+                            if let std::collections::hash_map::Entry::Vacant(e) =
+                                state_map.entry(new_key)
+                            {
+                                let is_final = tr_a.next_state.is_final || tr_b.next_state.is_final;
+                                let ns = new_aut.add_state(false, is_final);
+                                e.insert(ns);
+                                worklist.push_back(new_key);
+                            }
+                            let target = state_map[&new_key];
+                            new_aut.add_transition(current_state, label.clone(), target);
+                        }
+                    }
+                } else if !trans_a.is_empty() {
+                    // Only automata A can move.
+                    for tr_a in &trans_a {
+                        let new_key = (Some(tr_a.next_state), None);
+                        if let std::collections::hash_map::Entry::Vacant(e) =
+                            state_map.entry(new_key)
+                        {
+                            let is_final = tr_a.next_state.is_final;
+                            let ns = new_aut.add_state(false, is_final);
+                            e.insert(ns);
+                            worklist.push_back(new_key);
+                        }
+                        let target = state_map[&new_key];
+                        new_aut.add_transition(current_state, label.clone(), target);
+                    }
+                } else if !trans_b.is_empty() {
+                    // Only automata B can move.
+                    for tr_b in &trans_b {
+                        let new_key = (None, Some(tr_b.next_state));
+                        if let std::collections::hash_map::Entry::Vacant(e) =
+                            state_map.entry(new_key)
+                        {
+                            let is_final = tr_b.next_state.is_final;
+                            let ns = new_aut.add_state(false, is_final);
+                            e.insert(ns);
+                            worklist.push_back(new_key);
+                        }
+                        let target = state_map[&new_key];
+                        new_aut.add_transition(current_state, label.clone(), target);
+                    }
+                }
+            }
+
+            // For sink states: add self-loops driven by the active component.
+            match key {
+                (Some(s), None) => {
+                    for tr in s.get_transitions().iter() {
+                        let label = tr.label.clone();
+                        let new_key = (Some(tr.next_state), None);
+                        if let std::collections::hash_map::Entry::Vacant(e) =
+                            state_map.entry(new_key)
+                        {
+                            let is_final = tr.next_state.is_final;
+                            let ns = new_aut.add_state(false, is_final);
+                            e.insert(ns);
+                            worklist.push_back(new_key);
+                        }
+                        let target = state_map[&new_key];
+                        new_aut.add_transition(current_state, label.clone(), target);
+                    }
+                }
+                (None, Some(t)) => {
+                    for tr in t.get_transitions().iter() {
+                        let label = tr.label.clone();
+                        let new_key = (None, Some(tr.next_state));
+                        if let std::collections::hash_map::Entry::Vacant(e) =
+                            state_map.entry(new_key)
+                        {
+                            let is_final = tr.next_state.is_final;
+                            let ns = new_aut.add_state(false, is_final);
+                            e.insert(ns);
+                            worklist.push_back(new_key);
+                        }
+                        let target = state_map[&new_key];
+                        new_aut.add_transition(current_state, label.clone(), target);
+                    }
+                }
+                _ => {}
+            }
+        }
+        new_aut
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1498,6 +1670,258 @@ mod tests {
                 accepts(&plus_aut, &vec![vec!["a".to_string(), "a".to_string()]]),
                 "Kleene plus should accept 'aa'"
             );
+        }
+    }
+
+    #[cfg(test)]
+    mod union_tests {
+        use super::*;
+        use std::collections::HashSet;
+        use typed_arena::Arena;
+
+        // Helper: build a simple automaton that accepts a single letter.
+        fn build_single_letter_automata<'a>(
+            state_arena: &'a Arena<State<'a, String>>,
+            trans_arena: &'a Arena<Transition<'a, String>>,
+            letter: &'a str,
+            is_final: bool,
+        ) -> Automata<'a, String> {
+            let mut aut = Automata::new(state_arena, trans_arena, 0);
+            let s0 = aut.add_state(true, false);
+            let s1 = aut.add_state(false, is_final);
+            aut.add_transition(s0, letter.to_string(), s1);
+            aut
+        }
+
+        #[test]
+        fn test_union_single_letter() {
+            let state_arena = Arena::new();
+            let trans_arena = Arena::new();
+
+            // Automata A accepts "a"
+            let aut_a = build_single_letter_automata(&state_arena, &trans_arena, "a", true);
+            // Automata B accepts "b"
+            let aut_b = build_single_letter_automata(&state_arena, &trans_arena, "b", true);
+            let union_state_arena = Arena::new();
+            let union_trans_arena = Arena::new();
+            let union_aut = Automata::union(&aut_a, &aut_b, &union_state_arena, &union_trans_arena);
+            // Expect union automaton to accept "a" and "b" (shortest word = 1)
+            assert_eq!(union_aut.shortest_accepted_word_length(), 1);
+            let prefixes = union_aut.accepted_prefixes(1);
+            let expected: HashSet<Vec<String>> = vec![vec!["a".to_string()], vec!["b".to_string()]]
+                .into_iter()
+                .collect();
+            assert_eq!(prefixes, expected);
+        }
+
+        #[test]
+        fn test_union_synchronous() {
+            // Automata A: s0 -- "a" --> s1 (s1 final)
+            let state_arena_a = Arena::new();
+            let trans_arena_a = Arena::new();
+            let mut aut_a = Automata::new(&state_arena_a, &trans_arena_a, 0);
+            let s0_a = aut_a.add_state(true, false);
+            let s1_a = aut_a.add_state(false, true);
+            aut_a.add_transition(s0_a, "a".to_string(), s1_a);
+
+            // Automata B: t0 -- "a" --> t1 (t1 final)
+            let state_arena_b = Arena::new();
+            let trans_arena_b = Arena::new();
+            let mut aut_b = Automata::new(&state_arena_b, &trans_arena_b, 0);
+            let t0_b = aut_b.add_state(true, false);
+            let t1_b = aut_b.add_state(false, true);
+            aut_b.add_transition(t0_b, "a".to_string(), t1_b);
+
+            let union_state_arena = Arena::new();
+            let union_trans_arena = Arena::new();
+            let union_aut = Automata::union(&aut_a, &aut_b, &union_state_arena, &union_trans_arena);
+            // For "a", should use synchronous move to (Some(s1), Some(t1))
+            assert_eq!(union_aut.shortest_accepted_word_length(), 1);
+            let prefixes = union_aut.accepted_prefixes(1);
+            let expected: HashSet<Vec<String>> = vec![vec!["a".to_string()]].into_iter().collect();
+            assert_eq!(prefixes, expected);
+        }
+
+        #[test]
+        fn test_union_asynchronous_a() {
+            // Automata A: s0 -- "a" --> s1 (s1 final)
+            let state_arena_a = Arena::new();
+            let trans_arena_a = Arena::new();
+            let mut aut_a = Automata::new(&state_arena_a, &trans_arena_a, 0);
+            let s0_a = aut_a.add_state(true, false);
+            let s1_a = aut_a.add_state(false, true);
+            aut_a.add_transition(s0_a, "a".to_string(), s1_a);
+
+            // Automata B: t0 with no "a" transition.
+            let state_arena_b = Arena::new();
+            let trans_arena_b = Arena::new();
+            let mut aut_b = Automata::new(&state_arena_b, &trans_arena_b, 0);
+            let _t0_b = aut_b.add_state(true, false);
+
+            let union_state_arena = Arena::new();
+            let union_trans_arena = Arena::new();
+            let union_aut = Automata::union(&aut_a, &aut_b, &union_state_arena, &union_trans_arena);
+            // "a" should move asynchronously: (Some(s0), Some(t0)) -- "a" --> (Some(s1), None)
+            assert_eq!(union_aut.shortest_accepted_word_length(), 1);
+            let prefixes = union_aut.accepted_prefixes(1);
+            let expected: HashSet<Vec<String>> = vec![vec!["a".to_string()]].into_iter().collect();
+            assert_eq!(prefixes, expected);
+        }
+
+        #[test]
+        fn test_union_asynchronous_b() {
+            // Automata A: s0 with no "a" transition.
+            let state_arena_a = Arena::new();
+            let trans_arena_a = Arena::new();
+            let mut aut_a = Automata::new(&state_arena_a, &trans_arena_a, 0);
+            let _s0_a = aut_a.add_state(true, false);
+
+            // Automata B: t0 -- "a" --> t1 (t1 final)
+            let state_arena_b = Arena::new();
+            let trans_arena_b = Arena::new();
+            let mut aut_b = Automata::new(&state_arena_b, &trans_arena_b, 0);
+            let t0_b = aut_b.add_state(true, false);
+            let t1_b = aut_b.add_state(false, true);
+            aut_b.add_transition(t0_b, "a".to_string(), t1_b);
+
+            let union_state_arena = Arena::new();
+            let union_trans_arena = Arena::new();
+            let union_aut = Automata::union(&aut_a, &aut_b, &union_state_arena, &union_trans_arena);
+            // "a" should move asynchronously: (Some(s0), Some(t0)) -- "a" --> (None, Some(t1))
+            assert_eq!(union_aut.shortest_accepted_word_length(), 1);
+            let prefixes = union_aut.accepted_prefixes(1);
+            let expected: HashSet<Vec<String>> = vec![vec!["a".to_string()]].into_iter().collect();
+            assert_eq!(prefixes, expected);
+        }
+
+        #[test]
+        fn test_union_sink_self_loop() {
+            // Automata A: s0 -- "a" --> s1, s1 -- "b" --> s2 (s2 final)
+            let state_arena_a = Arena::new();
+            let trans_arena_a = Arena::new();
+            let mut aut_a = Automata::new(&state_arena_a, &trans_arena_a, 0);
+            let s0_a = aut_a.add_state(true, false);
+            let s1_a = aut_a.add_state(false, false);
+            let s2_a = aut_a.add_state(false, true);
+            aut_a.add_transition(s0_a, "a".to_string(), s1_a);
+            aut_a.add_transition(s1_a, "b".to_string(), s2_a);
+
+            // Automata B: t0 with no transitions.
+            let state_arena_b = Arena::new();
+            let trans_arena_b = Arena::new();
+            let mut aut_b = Automata::new(&state_arena_b, &trans_arena_b, 0);
+            let _t0_b = aut_b.add_state(true, false);
+
+            let union_state_arena = Arena::new();
+            let union_trans_arena = Arena::new();
+            let union_aut = Automata::union(&aut_a, &aut_b, &union_state_arena, &union_trans_arena);
+            // Expect "ab" accepted: (Some(s0), Some(t0)) -- "a" --> (Some(s1), None)
+            // then (Some(s1), None) -- "b" --> (Some(s2), None)
+            assert_eq!(union_aut.shortest_accepted_word_length(), 2);
+            let prefixes = union_aut.accepted_prefixes(2);
+            let expected: HashSet<Vec<String>> = vec![vec!["a".to_string(), "b".to_string()]]
+                .into_iter()
+                .collect();
+            assert_eq!(prefixes, expected);
+        }
+
+        #[test]
+        fn test_union_empty_word_acceptance() {
+            // Automata A: accepts empty word (s0 initial & final)
+            let state_arena_a = Arena::new();
+            let trans_arena_a = Arena::new();
+            let mut aut_a = Automata::new(&state_arena_a, &trans_arena_a, 0);
+            let _s0_a = aut_a.add_state(true, true);
+
+            // Automata B: t0 -- "b" --> t1 (t1 final)
+            let state_arena_b = Arena::new();
+            let trans_arena_b = Arena::new();
+            let mut aut_b = Automata::new(&state_arena_b, &trans_arena_b, 0);
+            let t0_b = aut_b.add_state(true, false);
+            let _t1_b = aut_b.add_state(false, true);
+            aut_b.add_transition(t0_b, "b".to_string(), _t1_b);
+
+            let union_state_arena = Arena::new();
+            let union_trans_arena = Arena::new();
+            let union_aut = Automata::union(&aut_a, &aut_b, &union_state_arena, &union_trans_arena);
+            // Because A accepts ε, union should accept the empty word.
+            assert_eq!(union_aut.shortest_accepted_word_length(), 0);
+        }
+
+        #[test]
+        fn test_union_cycle_handling() {
+            // Automata A: s0 -- "a" --> s1, s1 -- "a" --> s1 (s1 final)
+            let state_arena_a = Arena::new();
+            let trans_arena_a = Arena::new();
+            let mut aut_a = Automata::new(&state_arena_a, &trans_arena_a, 0);
+            let s0_a = aut_a.add_state(true, false);
+            let s1_a = aut_a.add_state(false, true);
+            aut_a.add_transition(s0_a, "a".to_string(), s1_a);
+            aut_a.add_transition(s1_a, "a".to_string(), s1_a);
+
+            // Automata B: t0 -- "a" --> t0 (non-final)
+            let state_arena_b = Arena::new();
+            let trans_arena_b = Arena::new();
+            let mut aut_b = Automata::new(&state_arena_b, &trans_arena_b, 0);
+            let t0_b = aut_b.add_state(true, false);
+            aut_b.add_transition(t0_b, "a".to_string(), t0_b);
+
+            let union_state_arena = Arena::new();
+            let union_trans_arena = Arena::new();
+            let union_aut = Automata::union(&aut_a, &aut_b, &union_state_arena, &union_trans_arena);
+            // Expected shortest accepted word is "a" (from (Some(s0), Some(t0)) on "a" to (Some(s1), Some(t0)))
+            assert_eq!(union_aut.shortest_accepted_word_length(), 1);
+        }
+
+        #[test]
+        fn test_union_multiple_transitions() {
+            // Automata A: s0 with two transitions on "a": one to s1 (final) and one to s2 (non-final)
+            let state_arena_a = Arena::new();
+            let trans_arena_a = Arena::new();
+            let mut aut_a = Automata::new(&state_arena_a, &trans_arena_a, 0);
+            let s0_a = aut_a.add_state(true, false);
+            let s1_a = aut_a.add_state(false, true);
+            let s2_a = aut_a.add_state(false, false);
+            aut_a.add_transition(s0_a, "a".to_string(), s1_a);
+            aut_a.add_transition(s0_a, "a".to_string(), s2_a);
+
+            // Automata B: t0 -- "a" --> t1.
+            let state_arena_b = Arena::new();
+            let trans_arena_b = Arena::new();
+            let mut aut_b = Automata::new(&state_arena_b, &trans_arena_b, 0);
+            let t0_b = aut_b.add_state(true, false);
+            let t1_b = aut_b.add_state(false, true);
+            aut_b.add_transition(t0_b, "a".to_string(), t1_b);
+
+            let union_state_arena = Arena::new();
+            let union_trans_arena = Arena::new();
+            let union_aut = Automata::union(&aut_a, &aut_b, &union_state_arena, &union_trans_arena);
+            // Expected shortest accepted word is "a" because one branch (s1 final) accepts.
+            assert_eq!(union_aut.shortest_accepted_word_length(), 1);
+        }
+
+        #[test]
+        fn test_union_dead_states() {
+            // Automata A: s0 with no outgoing transitions.
+            let state_arena_a = Arena::new();
+            let trans_arena_a = Arena::new();
+            let mut aut_a = Automata::new(&state_arena_a, &trans_arena_a, 0);
+            let _s0_a = aut_a.add_state(true, false);
+
+            // Automata B: t0 -- "a" --> t1 (t1 final)
+            let state_arena_b = Arena::new();
+            let trans_arena_b = Arena::new();
+            let mut aut_b = Automata::new(&state_arena_b, &trans_arena_b, 0);
+            let t0_b = aut_b.add_state(true, false);
+            let _t1_b = aut_b.add_state(false, true);
+            aut_b.add_transition(t0_b, "a".to_string(), _t1_b);
+
+            let union_state_arena = Arena::new();
+            let union_trans_arena = Arena::new();
+            let union_aut = Automata::union(&aut_a, &aut_b, &union_state_arena, &union_trans_arena);
+            // Expect that "a" is accepted via an asynchronous move from B,
+            // and no transitions lead to (None, None).
+            assert_eq!(union_aut.shortest_accepted_word_length(), 1);
         }
     }
 }
