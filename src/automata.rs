@@ -498,7 +498,8 @@ impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
             );
         }
         // create the new automaton (product automaton).
-        let mut product_automata = Automata::<L>::new(new_states_arena, new_trans_arena, 1);
+        let mut product_automata =
+            Automata::<L>::new(new_states_arena, new_trans_arena, self.dimensions);
 
         // We'll map (s1_ptr, s2_ptr) -> newly created product state.
         let mut pair_to_state = HashMap::new();
@@ -562,6 +563,221 @@ impl<'a, L: Eq + Hash + Clone + ValidLabel> Automata<'a, L> {
 
         product_automata
     }
+
+    /// Concatenates `self` with `other`, building the new automata in the provided arenas.
+    ///
+    /// The resulting automata accepts a word w if it can be split as uv with u accepted by `self`
+    /// and v accepted by `other`. We avoid using ε‐transitions by “jumping” non-deterministically
+    /// from every final state in `self` to the successors of every initial state in `other`.
+    pub fn concat<'b>(
+        &'a self,
+        other: &'a Automata<'a, L>,
+        new_states_arena: &'b Arena<State<'b, L>>,
+        new_trans_arena: &'b Arena<Transition<'b, L>>,
+    ) -> Automata<'b, L> {
+        if self.dimensions != other.dimensions {
+            panic!(
+                "Dimension mismatch in concatenation: {} vs {}",
+                self.dimensions, other.dimensions
+            );
+        }
+        // Create the new automaton.
+        let mut new_aut = Automata::new(new_states_arena, new_trans_arena, self.dimensions);
+
+        // Determine if the second automata accepts the empty word.
+        // (A run in self may “jump” into other without consuming input only if
+        // an initial state of `other` is final.)
+        let other_accepts_empty = other.initial_states.iter().any(|s| s.is_final);
+        // Also, if self accepts ε then concatenation should include words from other alone.
+        let self_accepts_empty = self.initial_states.iter().any(|s| s.is_final);
+
+        // We will copy the states from self and other into the new automata.
+        // The mapping is from the pointer of an original state to its copy.
+        let mut map_self: HashMap<*const State<'a, L>, &State<'b, L>> = HashMap::new();
+        let mut map_other: HashMap<*const State<'a, L>, &State<'b, L>> = HashMap::new();
+
+        // Copy all states from self.
+        // A state from self will be final in the new automata only if it was final and
+        // the second automata accepts ε (i.e. the run can finish in self).
+        for state in self.iter_states() {
+            let new_is_final = state.is_final && other_accepts_empty;
+            let new_state = new_aut.add_state(false, new_is_final);
+            map_self.insert(state as *const _, new_state);
+        }
+
+        // Copy all states from other.
+        for state in other.iter_states() {
+            let new_state = new_aut.add_state(false, state.is_final);
+            map_other.insert(state as *const _, new_state);
+        }
+
+        // Set the new automata’s initial states.
+        // Always include the initial states from self.
+        for &s in &self.initial_states {
+            new_aut.initial_states.push(map_self[&(s as *const _)]);
+        }
+        // If self accepts ε, then also include the initial states from other.
+        if self_accepts_empty {
+            for &s in &other.initial_states {
+                new_aut.initial_states.push(map_other[&(s as *const _)]);
+            }
+        }
+
+        // Copy transitions within self.
+        for state in self.iter_states() {
+            let new_from = map_self[&(state as *const _)];
+            for &trans in state.get_transitions().iter() {
+                let new_to = map_self[&(trans.next_state as *const _)];
+                new_aut.add_transition(new_from, trans.label.clone(), new_to);
+            }
+        }
+
+        // Copy transitions within other.
+        for state in other.iter_states() {
+            let new_from = map_other[&(state as *const _)];
+            for &trans in state.get_transitions().iter() {
+                let new_to = map_other[&(trans.next_state as *const _)];
+                new_aut.add_transition(new_from, trans.label.clone(), new_to);
+            }
+        }
+
+        // Add jump transitions.
+        // For every state in self that is final (in the original automata),
+        // add, for each initial state in other, every outgoing transition from that initial state.
+        // These transitions “simulate” the ε-move in the usual construction,
+        // by consuming the same letter that would be read from other.
+        for state in self.iter_states() {
+            if state.is_final {
+                let new_from = map_self[&(state as *const _)];
+                for &init_other in &other.initial_states {
+                    for &trans in init_other.get_transitions().iter() {
+                        let new_to = map_other[&(trans.next_state as *const _)];
+                        new_aut.add_transition(new_from, trans.label.clone(), new_to);
+                    }
+                }
+            }
+        }
+
+        new_aut
+    }
+
+    /// Returns a new automaton recognizing the Kleene star (A*) of the language of `self`.
+    ///
+    /// The new automaton is built in the given arenas. Its construction works by:
+    /// 1. Copying all states and transitions from `self` into the new arenas.
+    /// 2. For every state in `self` that is final, adding jump transitions to the transitions
+    ///    emerging from each initial state of `self` (thus allowing repetition).
+    /// 3. Adding a fresh new state (which is both initial and final) that “jumps into” the copy
+    ///    of `self` via the outgoing transitions of each initial state.
+    pub fn star<'b>(
+        &'a self,
+        new_states_arena: &'b Arena<State<'b, L>>,
+        new_trans_arena: &'b Arena<Transition<'b, L>>,
+    ) -> Automata<'b, L> {
+        // Create the new automaton.
+        let mut new_aut = Automata::new(new_states_arena, new_trans_arena, self.dimensions);
+
+        // Create a mapping from each state in self to its copy in new_aut.
+        let mut map_self: HashMap<*const State<'a, L>, &State<'b, L>> = HashMap::new();
+        for state in self.iter_states() {
+            // In the copied automaton, the finality is kept as in self.
+            let new_state = new_aut.add_state(false, state.is_final);
+            map_self.insert(state as *const _, new_state);
+        }
+
+        // Copy transitions from self.
+        for state in self.iter_states() {
+            let new_from = map_self[&(state as *const _)];
+            for &trans in state.get_transitions().iter() {
+                let new_to = map_self[&(trans.next_state as *const _)];
+                new_aut.add_transition(new_from, trans.label.clone(), new_to);
+            }
+        }
+
+        // Add jump transitions.
+        // For every state in self that is final, add (non-deterministic) transitions that
+        // simulate a jump into self by “injecting” each outgoing transition from every initial state.
+        for state in self.iter_states() {
+            if state.is_final {
+                let new_from = map_self[&(state as *const _)];
+                for &init in &self.initial_states {
+                    for &trans in init.get_transitions().iter() {
+                        let new_to = map_self[&(trans.next_state as *const _)];
+                        new_aut.add_transition(new_from, trans.label.clone(), new_to);
+                    }
+                }
+            }
+        }
+
+        // Add a new fresh state which will be the sole initial state.
+        // This state is marked final (so that the empty word is accepted).
+        let new_init = new_aut.add_state(true, true);
+        // From the new initial state, add jump transitions based on the outgoing transitions
+        // of each initial state of the original automaton.
+        for &init in &self.initial_states {
+            for &trans in init.get_transitions().iter() {
+                let new_to = map_self[&(trans.next_state as *const _)];
+                new_aut.add_transition(new_init, trans.label.clone(), new_to);
+            }
+        }
+        // In star, the only initial state is the new one.
+        new_aut.initial_states = vec![new_init];
+
+        new_aut
+    }
+
+    /// Returns a new automaton recognizing the Kleene plus (A⁺) of the language of `self`.
+    ///
+    /// The new automaton is built in the given arenas. Its construction is similar to `star`
+    /// except that we do not add a fresh initial state; rather, we keep the copy of self’s initial
+    /// states as initial. In addition, jump transitions are added from every final state to the
+    /// outgoing transitions of each initial state, allowing repeated occurrences.
+    pub fn plus<'b>(
+        &'a self,
+        new_states_arena: &'b Arena<State<'b, L>>,
+        new_trans_arena: &'b Arena<Transition<'b, L>>,
+    ) -> Automata<'b, L> {
+        // Create the new automaton.
+        let mut new_aut = Automata::new(new_states_arena, new_trans_arena, self.dimensions);
+
+        // Create a mapping from each state in self to its copy in new_aut.
+        let mut map_self: HashMap<*const State<'a, L>, &State<'b, L>> = HashMap::new();
+        for state in self.iter_states() {
+            let new_state = new_aut.add_state(false, state.is_final);
+            map_self.insert(state as *const _, new_state);
+        }
+
+        // Copy transitions from self.
+        for state in self.iter_states() {
+            let new_from = map_self[&(state as *const _)];
+            for &trans in state.get_transitions().iter() {
+                let new_to = map_self[&(trans.next_state as *const _)];
+                new_aut.add_transition(new_from, trans.label.clone(), new_to);
+            }
+        }
+
+        // Add jump transitions.
+        // For every state in self that is final, add transitions to simulate restarting self:
+        // for each initial state in self, for each outgoing transition from that initial state.
+        for state in self.iter_states() {
+            if state.is_final {
+                let new_from = map_self[&(state as *const _)];
+                for &init in &self.initial_states {
+                    for &trans in init.get_transitions().iter() {
+                        let new_to = map_self[&(trans.next_state as *const _)];
+                        new_aut.add_transition(new_from, trans.label.clone(), new_to);
+                    }
+                }
+            }
+        }
+
+        // Set the new automaton's initial states to be the copies of self's initial states.
+        for &init in &self.initial_states {
+            new_aut.initial_states.push(map_self[&(init as *const _)]);
+        }
+
+        new_aut
+    }
 }
 
 #[cfg(test)]
@@ -573,6 +789,47 @@ mod tests {
     };
     use itertools::Itertools;
     use typed_arena::Arena;
+
+    fn accepts<'a>(nfah: &'a NFAH<'a>, words: &Vec<Vec<String>>) -> bool {
+        assert_eq!(
+            nfah.dimensions,
+            words.len(),
+            "The number of dimensions must match the number of words: {} vs {}",
+            nfah.dimensions,
+            words.len()
+        );
+        let mut input_sequences = (0..words.len())
+            .map(|_| AppendOnlySequence::new())
+            .collect_vec();
+        let mut runner = SimpleAutomataRunner::new(
+            nfah,
+            input_sequences
+                .iter()
+                .map(|s| s.readable_view())
+                .collect_vec(),
+        );
+        runner.insert_from_initial_states(
+            input_sequences
+                .iter()
+                .map(|s| s.readable_view())
+                .collect_vec(),
+            (0..words.len()).collect_vec(),
+        );
+        for i in 0..words.len() {
+            for c in words[i].iter() {
+                input_sequences[i].append(c.clone());
+                runner.consume();
+            }
+            input_sequences[i].close();
+            runner.consume();
+        }
+        while runner.consume() {}
+
+        runner
+            .current_configurations
+            .iter()
+            .any(|c| c.current_state.is_final && c.input_sequence.iter().all(|s| s.is_empty()))
+    }
 
     #[test]
     fn test_add_state() {
@@ -844,22 +1101,10 @@ mod tests {
 
         {
             // 'ab' must be accepted
-            let mut input_sequence = AppendOnlySequence::new();
-            let mut intersection_runner =
-                SimpleAutomataRunner::new(&product_nfah, vec![input_sequence.readable_view()]);
-            intersection_runner
-                .insert_from_initial_states(vec![input_sequence.readable_view()], vec![0]);
-            input_sequence.append("a".to_string());
-            intersection_runner.consume();
-            input_sequence.append("b".to_string());
-            intersection_runner.consume();
-            assert!(!intersection_runner
-                .current_configurations
-                .iter()
-                .filter(|conf| conf.current_state.is_final)
-                .collect_vec()
-                .is_empty())
+            let words = vec![vec!["a".to_string(), "b".to_string()]];
+            assert!(accepts(&product_nfah, &words));
         }
+
         // For further verification, count the number of final states reached in each product automaton.
         // In our example:
         //   - Under intersection semantics, only (s2, p2) is final.
@@ -892,5 +1137,367 @@ mod tests {
             final_count_inter, 1,
             "Intersection product should have exactly one final state."
         );
+    }
+
+    #[cfg(test)]
+    mod concat_tests {
+        use super::*;
+        use typed_arena::Arena;
+
+        /// Test concatenation of two simple automata.
+        /// Automata A accepts only "a" and automata B accepts only "b".
+        /// Their concatenation should accept "ab" (i.e. shortest accepted word length is 2).
+        #[test]
+        fn test_concat_simple() {
+            // Automata A: accepts "a"
+            let arena_a_states = Arena::new();
+            let arena_a_trans = Arena::new();
+            let mut automata_a = Automata::<String>::new(&arena_a_states, &arena_a_trans, 0);
+            let a0 = automata_a.add_state(true, false);
+            let a1 = automata_a.add_state(false, true);
+            automata_a.add_transition(a0, "a".to_string(), a1);
+
+            // Automata B: accepts "b"
+            let arena_b_states = Arena::new();
+            let arena_b_trans = Arena::new();
+            let mut automata_b = Automata::<String>::new(&arena_b_states, &arena_b_trans, 0);
+            let b0 = automata_b.add_state(true, false);
+            let b1 = automata_b.add_state(false, true);
+            automata_b.add_transition(b0, "b".to_string(), b1);
+
+            // Concatenation: language should be {"ab"}
+            let arena_concat_states = Arena::new();
+            let arena_concat_trans = Arena::new();
+            let concat_aut =
+                automata_a.concat(&automata_b, &arena_concat_states, &arena_concat_trans);
+
+            // "ab" has length 2.
+            assert_eq!(
+                concat_aut.shortest_accepted_word_length(),
+                2,
+                "Concatenation of A and B should accept 'ab'"
+            );
+        }
+
+        /// Test concatenation where the first automata accepts ε.
+        /// Automata A accepts the empty word, and automata B accepts "b".
+        /// The concatenation should accept "b" (shortest word of length 1).
+        #[test]
+        fn test_concat_with_epsilon_in_first() {
+            // Automata A: accepts ε (one state, both initial and final)
+            let arena_a_states = Arena::new();
+            let arena_a_trans = Arena::new();
+            let mut automata_a = Automata::<String>::new(&arena_a_states, &arena_a_trans, 0);
+            automata_a.add_state(true, true);
+            // No transitions
+
+            // Automata B: accepts "b"
+            let arena_b_states = Arena::new();
+            let arena_b_trans = Arena::new();
+            let mut automata_b = Automata::<String>::new(&arena_b_states, &arena_b_trans, 0);
+            let b0 = automata_b.add_state(true, false);
+            let b1 = automata_b.add_state(false, true);
+            automata_b.add_transition(b0, "b".to_string(), b1);
+
+            // Concatenation: since A accepts ε, the language should be exactly that of B.
+            let arena_concat_states = Arena::new();
+            let arena_concat_trans = Arena::new();
+            let concat_aut =
+                automata_a.concat(&automata_b, &arena_concat_states, &arena_concat_trans);
+
+            // "b" has length 1.
+            assert_eq!(
+                concat_aut.shortest_accepted_word_length(),
+                1,
+                "Concatenation when A accepts ε should yield language of B"
+            );
+        }
+
+        /// Test concatenation where the second automata accepts ε.
+        /// Automata A accepts "a", and automata B accepts ε.
+        /// In this case a run can finish in A (if B does nothing) because B accepts ε.
+        /// The concatenation should accept "a" (shortest accepted word length is 1).
+        #[test]
+        fn test_concat_with_epsilon_in_second() {
+            // Automata A: accepts "a"
+            let arena_a_states = Arena::new();
+            let arena_a_trans = Arena::new();
+            let mut automata_a = Automata::<String>::new(&arena_a_states, &arena_a_trans, 0);
+            let a0 = automata_a.add_state(true, false);
+            let a1 = automata_a.add_state(false, true);
+            automata_a.add_transition(a0, "a".to_string(), a1);
+
+            // Automata B: accepts ε (one state, both initial and final)
+            let arena_b_states = Arena::new();
+            let arena_b_trans = Arena::new();
+            let mut automata_b = Automata::<String>::new(&arena_b_states, &arena_b_trans, 0);
+            automata_b.add_state(true, true);
+            // No transitions
+
+            // Concatenation: since B accepts ε, a run ending in A's final state should be accepted.
+            let arena_concat_states = Arena::new();
+            let arena_concat_trans = Arena::new();
+            let concat_aut =
+                automata_a.concat(&automata_b, &arena_concat_states, &arena_concat_trans);
+
+            // "a" has length 1.
+            assert_eq!(
+            concat_aut.shortest_accepted_word_length(),
+            1,
+            "Concatenation when B accepts ε should yield language that includes A's accepted words"
+        );
+        }
+
+        /// Test concatenation where both automata accept ε.
+        /// Then the concatenated language should include the empty word.
+        #[test]
+        fn test_concat_epsilon_epsilon() {
+            // Automata A: accepts ε
+            let arena_a_states = Arena::new();
+            let arena_a_trans = Arena::new();
+            let mut automata_a = Automata::<String>::new(&arena_a_states, &arena_a_trans, 0);
+            automata_a.add_state(true, true);
+
+            // Automata B: accepts ε
+            let arena_b_states = Arena::new();
+            let arena_b_trans = Arena::new();
+            let mut automata_b = Automata::<String>::new(&arena_b_states, &arena_b_trans, 0);
+            automata_b.add_state(true, true);
+
+            // Concatenation: should accept ε (shortest accepted word length is 0)
+            let arena_concat_states = Arena::new();
+            let arena_concat_trans = Arena::new();
+            let concat_aut =
+                automata_a.concat(&automata_b, &arena_concat_states, &arena_concat_trans);
+
+            assert_eq!(
+                concat_aut.shortest_accepted_word_length(),
+                0,
+                "Concatenation of two ε-accepting automata should accept ε"
+            );
+        }
+    }
+
+    #[test]
+    fn test_accepts_nfah_multiple_dimensions() {
+        // Build an NFAH for 2 dimensions that accepts if the first input is "a" and the second is "b"
+        let arena_states = Arena::new();
+        let arena_trans = Arena::new();
+        let mut automata = NFAH::new(&arena_states, &arena_trans, 2);
+        let s0 = automata.add_state(true, false);
+        let s1 = automata.add_state(false, false);
+        let s2 = automata.add_state(false, true);
+        automata.add_transition(s0, ("a".to_string(), 0), s1);
+        automata.add_transition(s1, ("b".to_string(), 1), s2);
+        let accepted = accepts(
+            &automata,
+            &vec![vec!["a".to_string()], vec!["b".to_string()]],
+        );
+        assert!(
+            accepted,
+            "The automata should accept the input ['a'], ['b']"
+        );
+        let rejected = accepts(
+            &automata,
+            &vec![vec!["a".to_string()], vec!["c".to_string()]],
+        );
+        assert!(
+            !rejected,
+            "The automata should not accept the input ['a'], ['c']"
+        );
+    }
+
+    #[cfg(test)]
+    mod star_plus_tests {
+        use super::*;
+        use typed_arena::Arena;
+
+        /// Test that the Kleene star of an automaton accepting "a" accepts ε.
+        #[test]
+        fn test_star_accepts_empty() {
+            // Build an automaton that accepts "a"
+            let arena_states = Arena::new();
+            let arena_trans = Arena::new();
+            let mut automata = Automata::<String>::new(&arena_states, &arena_trans, 0);
+            let s0 = automata.add_state(true, false);
+            let s1 = automata.add_state(false, true);
+            automata.add_transition(s0, "a".to_string(), s1);
+
+            // Build the Kleene star of automata.
+            let arena_star_states = Arena::new();
+            let arena_star_trans = Arena::new();
+            let star_aut = automata.star(&arena_star_states, &arena_star_trans);
+
+            // Since star should always accept ε, the shortest accepted word length is 0.
+            assert_eq!(
+                star_aut.shortest_accepted_word_length(),
+                0,
+                "Kleene star should accept the empty word"
+            );
+
+            // Additionally, check that non-empty words are accepted.
+            // Accepted prefixes of length 1 should include "a".
+            let prefixes_len1 = star_aut.accepted_prefixes(1);
+            assert!(
+                prefixes_len1.contains(&vec!["a".to_string()]),
+                "Kleene star should accept 'a'"
+            );
+        }
+
+        /// Test that the Kleene star of an automaton accepting "a" also accepts repeated occurrences.
+        #[test]
+        fn test_star_multiple_occurrences() {
+            // Build an automaton that accepts "a"
+            let arena_states = Arena::new();
+            let arena_trans = Arena::new();
+            let mut automata = Automata::<String>::new(&arena_states, &arena_trans, 0);
+            let s0 = automata.add_state(true, false);
+            let s1 = automata.add_state(false, true);
+            automata.add_transition(s0, "a".to_string(), s1);
+
+            // Build the Kleene star of automata.
+            let arena_star_states = Arena::new();
+            let arena_star_trans = Arena::new();
+            let star_aut = automata.star(&arena_star_states, &arena_star_trans);
+
+            // Accepted prefixes of length 2 should include "aa".
+            let prefixes_len2 = star_aut.accepted_prefixes(2);
+            assert!(
+                prefixes_len2.contains(&vec!["a".to_string(), "a".to_string()]),
+                "Kleene star should accept 'aa'"
+            );
+        }
+
+        /// Test that the Kleene plus of an automaton accepting "a" does not accept ε.
+        #[test]
+        fn test_plus_no_epsilon() {
+            // Build an automaton that accepts "a"
+            let arena_states = Arena::new();
+            let arena_trans = Arena::new();
+            let mut automata = Automata::<String>::new(&arena_states, &arena_trans, 0);
+            let s0 = automata.add_state(true, false);
+            let s1 = automata.add_state(false, true);
+            automata.add_transition(s0, "a".to_string(), s1);
+
+            // Build the Kleene plus of automata.
+            let arena_plus_states = Arena::new();
+            let arena_plus_trans = Arena::new();
+            let plus_aut = automata.plus(&arena_plus_states, &arena_plus_trans);
+
+            // Since plus should require at least one occurrence, the shortest accepted word is "a" (length 1).
+            assert_eq!(
+                plus_aut.shortest_accepted_word_length(),
+                1,
+                "Kleene plus should not accept the empty word if the original automata doesn't"
+            );
+
+            // Check that accepted prefixes of length 1 include "a".
+            let prefixes_len1 = plus_aut.accepted_prefixes(1);
+            assert!(
+                prefixes_len1.contains(&vec!["a".to_string()]),
+                "Kleene plus should accept 'a'"
+            );
+        }
+
+        /// Test that the Kleene plus of an automaton accepting "a" also accepts repeated occurrences.
+        #[test]
+        fn test_plus_multiple_occurrences() {
+            // Build an automaton that accepts "a"
+            let arena_states = Arena::new();
+            let arena_trans = Arena::new();
+            let mut automata = Automata::<String>::new(&arena_states, &arena_trans, 0);
+            let s0 = automata.add_state(true, false);
+            let s1 = automata.add_state(false, true);
+            automata.add_transition(s0, "a".to_string(), s1);
+
+            // Build the Kleene plus of automata.
+            let arena_plus_states = Arena::new();
+            let arena_plus_trans = Arena::new();
+            let plus_aut = automata.plus(&arena_plus_states, &arena_plus_trans);
+
+            // Accepted prefixes of length 2 should include "aa".
+            let prefixes_len2 = plus_aut.accepted_prefixes(2);
+            assert!(
+                prefixes_len2.contains(&vec!["a".to_string(), "a".to_string()]),
+                "Kleene plus should accept 'aa'"
+            );
+        }
+
+        /// Test that the Kleene plus of an automaton that already accepts ε continues to accept ε.
+        #[test]
+        fn test_plus_accepts_epsilon_when_original_accepts_epsilon() {
+            // Build an automaton that accepts ε (one state, both initial and final)
+            let arena_states = Arena::new();
+            let arena_trans = Arena::new();
+            let mut automata = Automata::<String>::new(&arena_states, &arena_trans, 0);
+            automata.add_state(true, true);
+            // No transitions
+
+            // Build the Kleene plus of automata.
+            let arena_plus_states = Arena::new();
+            let arena_plus_trans = Arena::new();
+            let plus_aut = automata.plus(&arena_plus_states, &arena_plus_trans);
+
+            // Since the original automata accepts ε, plus should also accept ε.
+            assert_eq!(
+                plus_aut.shortest_accepted_word_length(),
+                0,
+                "Kleene plus should accept ε if the original automata accepts ε"
+            );
+        }
+
+        #[test]
+        fn test_star_accepts_words() {
+            // Build an NFAH that accepts the word "a"
+            let arena_states = Arena::new();
+            let arena_trans = Arena::new();
+            let mut automata = NFAH::new(&arena_states, &arena_trans, 1);
+            let s0 = automata.add_state(true, false);
+            let s1 = automata.add_state(false, true);
+            automata.add_transition(s0, ("a".to_string(), 0), s1);
+            // Build the Kleene star of the automata.
+            let arena_star_states = Arena::new();
+            let arena_star_trans = Arena::new();
+            let star_aut = automata.star(&arena_star_states, &arena_star_trans);
+            assert!(
+                accepts(&star_aut, &vec![vec![]]),
+                "Kleene star should accept empty word"
+            );
+            assert!(
+                accepts(&star_aut, &vec![vec!["a".to_string()]]),
+                "Kleene star should accept 'a'"
+            );
+            assert!(
+                accepts(&star_aut, &vec![vec!["a".to_string(), "a".to_string()]]),
+                "Kleene star should accept 'aa'"
+            );
+        }
+
+        #[test]
+        fn test_plus_accepts_words() {
+            // Build an NFAH that accepts the word "a"
+            let arena_states = Arena::new();
+            let arena_trans = Arena::new();
+            let mut automata = NFAH::new(&arena_states, &arena_trans, 1);
+            let s0 = automata.add_state(true, false);
+            let s1 = automata.add_state(false, true);
+            automata.add_transition(s0, ("a".to_string(), 0), s1);
+            // Build the Kleene plus of the automata.
+            let arena_plus_states = Arena::new();
+            let arena_plus_trans = Arena::new();
+            let plus_aut = automata.plus(&arena_plus_states, &arena_plus_trans);
+            assert!(
+                !accepts(&plus_aut, &vec![vec![]]),
+                "Kleene plus should not accept empty word"
+            );
+            assert!(
+                accepts(&plus_aut, &vec![vec!["a".to_string()]]),
+                "Kleene plus should accept 'a'"
+            );
+            assert!(
+                accepts(&plus_aut, &vec![vec!["a".to_string(), "a".to_string()]]),
+                "Kleene plus should accept 'aa'"
+            );
+        }
     }
 }

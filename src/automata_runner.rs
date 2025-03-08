@@ -59,7 +59,7 @@ pub trait NFAHRunner<'a, C: NFAHConfiguration<'a> + std::cmp::Eq + std::hash::Ha
 
     /// Consumes the input sequence and move to the successors.
     ///
-    /// Returns `true` if the the configuration set has updated.
+    /// Returns `true` if the configuration set has updated.
     fn consume(&mut self) -> bool {
         let initial_size = self.len();
         let mut current_size = 0;
