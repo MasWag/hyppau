@@ -106,10 +106,10 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
                 {
                     debug!("The position {:?} is too early", position);
                     self.waiting_queue.insert(position);
-                    println!("{:?}", self.waiting_queue.last());
+                    // println!("{:?}", self.waiting_queue.last());
                     break;
                 }
-                println!("new_position: {:?}", position);
+                // println!("new_position: {:?}", position);
                 let valid_successors = self.compute_valid_successors(&position.0);
 
                 // Put the successors to the waiting queue
