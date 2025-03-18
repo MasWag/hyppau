@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use log::debug;
 use std::collections::{HashMap, HashSet, VecDeque};
 use typed_arena::Arena;
 
@@ -83,6 +84,7 @@ impl<'a> KMPSkipValues<'a> {
             skip_values.push(skip_value);
         }
 
+        debug!("Constructed KMP-style skip value table");
         KMPSkipValues { skip_values }
     }
 }

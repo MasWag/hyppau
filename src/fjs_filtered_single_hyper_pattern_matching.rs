@@ -255,6 +255,17 @@ impl<Notifier: ResultNotifier> FJSFilteredSingleHyperPatternMatching<'_, Notifie
         !should_skip
     }
 
+    fn compute_skipped_indices(&self, start_position: &StartPosition) -> Vec<usize> {
+        let mut result = Vec::with_capacity(self.dimensions());
+        for i in 0..self.dimensions() {
+            if self.skipped_positions[i].contains(&start_position.start_indices[i]) {
+                result.push(i);
+            }
+        }
+
+        return result;
+    }
+
     fn compute_valid_successors(
         &mut self,
         start_position: &StartPosition,
@@ -263,7 +274,8 @@ impl<Notifier: ResultNotifier> FJSFilteredSingleHyperPatternMatching<'_, Notifie
         waiting_queue.push(start_position.clone());
         let mut valid_successors = Vec::new();
         while let Some(examined_position) = waiting_queue.pop() {
-            trace!("exampled_position: {:?}", examined_position);
+            let skipped_indices = self.compute_skipped_indices(&examined_position);
+
             // The skipped variables skipped by the filter
             let skipped_streams = self.skipped_streams(&examined_position);
 
@@ -291,7 +303,14 @@ impl<Notifier: ResultNotifier> FJSFilteredSingleHyperPatternMatching<'_, Notifie
                     valid_successors.push(Reverse(successor));
                 } else {
                     // Examine `successor` if `successor` is skipped by KMP/QS
-                    waiting_queue.push(successor);
+                    // Check if one of the invalidated positions changed
+                    if skipped_indices.is_empty()
+                        || skipped_indices.iter().any(|&i| {
+                            examined_position.start_indices[i] != successor.start_indices[i]
+                        })
+                    {
+                        waiting_queue.push(successor);
+                    }
                 }
             }
         }

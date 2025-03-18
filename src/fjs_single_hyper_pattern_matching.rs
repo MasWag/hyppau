@@ -1,6 +1,7 @@
 use std::{cmp::Reverse, collections::BTreeSet};
 
 use itertools::Itertools;
+use log::trace;
 
 use crate::{
     automata::NFAH,
@@ -66,6 +67,10 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
     }
 
     fn consume_input(&mut self) {
+        trace!(
+            "configuration_size: {}",
+            self.automata_runner.current_configurations.len()
+        );
         self.automata_runner.consume();
         let final_configurations = self.automata_runner.get_final_configurations();
         let dimensions = self.dimensions();
@@ -98,10 +103,8 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
             // Find a new valid starting position
             if let Some(position) = self.waiting_queue.pop_last() {
                 let valid_successors = self.compute_valid_successors(&position.0);
-
                 // Put the successors to the waiting queue
                 self.waiting_queue.extend(valid_successors);
-
                 if self.is_valid_position(&position.0) {
                     let mut input_streams = self.input_streams.clone();
                     for variable in 0..self.dimensions() {
@@ -112,7 +115,6 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
                     self.automata_runner
                         .insert_from_initial_states(input_streams, self.ids.clone());
                     self.automata_runner.consume();
-
                     let final_configurations = self.automata_runner.get_final_configurations();
                     final_configurations.iter().cloned().for_each(|c| {
                         let mut intervals = Vec::with_capacity(dimensions);
@@ -219,6 +221,17 @@ impl<Notifier: ResultNotifier> FJSSingleHyperPatternMatching<'_, Notifier> {
         !should_skip
     }
 
+    fn compute_skipped_indices(&self, start_position: &StartPosition) -> Vec<usize> {
+        let mut result = Vec::with_capacity(self.dimensions());
+        for i in 0..self.dimensions() {
+            if self.skipped_positions[i].contains(&start_position.start_indices[i]) {
+                result.push(i);
+            }
+        }
+
+        return result;
+    }
+
     fn compute_valid_successors(
         &mut self,
         start_position: &StartPosition,
@@ -227,6 +240,8 @@ impl<Notifier: ResultNotifier> FJSSingleHyperPatternMatching<'_, Notifier> {
         waiting_queue.push(start_position.clone());
         let mut valid_successors = Vec::new();
         while let Some(examined_position) = waiting_queue.pop() {
+            let skipped_indices = self.compute_skipped_indices(&examined_position);
+
             let successor_candidates = examined_position
                 .immediate_successors()
                 .into_iter()
@@ -236,7 +251,14 @@ impl<Notifier: ResultNotifier> FJSSingleHyperPatternMatching<'_, Notifier> {
                 if self.is_valid_position(&successor) && self.try_quick_search_skip(&successor) {
                     valid_successors.push(Reverse(successor));
                 } else {
-                    waiting_queue.push(successor);
+                    // Check if one of the invalidated positions changed
+                    if skipped_indices.is_empty()
+                        || skipped_indices.iter().any(|&i| {
+                            examined_position.start_indices[i] != successor.start_indices[i]
+                        })
+                    {
+                        waiting_queue.push(successor);
+                    }
                 }
             }
         }

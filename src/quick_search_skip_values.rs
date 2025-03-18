@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use log::debug;
+
 use crate::automata::NFAH;
 
 pub trait VectorWithVer<T> {
@@ -84,6 +86,7 @@ impl QuickSearchSkipValues {
             skip_values_map.push(skip_values);
         }
 
+        debug!("Constructed Quick-Search-style skip value table");
         QuickSearchSkipValues {
             shortest_accepted_word_length_map,
             last_accepted_word,
