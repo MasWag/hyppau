@@ -1,4 +1,4 @@
-#!/bin/sh -ue
+#!/bin/bash -ue
 ################################################################
 # Name
 #  run.sh
@@ -57,8 +57,8 @@ py_actions=$(echo "$actions" | tr ',' ' ')
 py_outputs=$(echo "$outputs" | tr ',' ' ')
 
 # Generate models and logs
-seq "$input_length" | "${EXAMPLE_DIR}/interference/gen_log.awk" -v ACTIONS="$actions" -v OUTPUTS="$outputs" > "/tmp/interference_${actions//,}_${outputs//,}-${input_length}.input"
-"${EXAMPLE_DIR}/interference/gen_interference.py" --actions $py_actions --outputs $py_outputs > "/tmp/interference_${actions//,}_${outputs//,}.json"
+seq "$input_length" | "${EXAMPLE_DIR}/interference/gen_log.awk" -v ACTIONS="$actions" -v OUTPUTS="$outputs" > "/tmp/interference_${actions/,/}_${outputs/,/}-${input_length}.input"
+"${EXAMPLE_DIR}/interference/gen_interference.py" --actions $py_actions --outputs $py_outputs > "/tmp/interference_${actions/,/}_${outputs/,/}.json"
 
 # Build the project
 cargo build --release
@@ -66,4 +66,4 @@ cargo build --release
 # Run the experiments
 mkdir -p "$LOG_DIR"
 
-measure_time "$PROJECT_ROOT/target/release/hyppau" -f "/tmp/interference_${actions//,}_${outputs//,}.json" -i "/tmp/interference_${actions//,}_${outputs//,}-${input_length}.input" -m "$mode" -o "${LOG_DIR}/interference-${actions//,}_${outputs//,}-${input_length}-${mode}-${timestamp}.output.log" 2> "${LOG_DIR}/interference-${actions//,}_${outputs//,}-${input_length}-${mode}-${timestamp}.stderr.log"
+measure_time "$PROJECT_ROOT/target/release/hyppau" -f "/tmp/interference_${actions/,/}_${outputs/,/}.json" -i "/tmp/interference_${actions/,/}_${outputs/,/}-${input_length}.input" -m "$mode" -o "${LOG_DIR}/interference-${actions/,/}_${outputs/,/}-${input_length}-${mode}-${timestamp}.output.log" 2> "${LOG_DIR}/interference-${actions/,/}_${outputs/,/}-${input_length}-${mode}-${timestamp}.stderr.log"
