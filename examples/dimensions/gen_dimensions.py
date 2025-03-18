@@ -52,8 +52,8 @@ def generate_instance(dimensions):
 
     # The final transitions
     instance["transitions"].append({
-        "from": 2 * dimensions,
-        "to": 2 * dimensions + 1,
+        "from": dimensions,
+        "to": 2 * dimensions,
         "label": ['@', 0]
     })
 

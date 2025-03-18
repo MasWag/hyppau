@@ -7,7 +7,7 @@
 #  Script to generate a random sequence for the ManyDimensions example.
 #
 # Example
-#  seq 100 | ./gen_log.awk -v ACTIONS="a,b" 
+#  seq 100 | ./gen_log.awk -v ACTIONS="a,b"
 #
 # Author
 #  Masaki Waga
