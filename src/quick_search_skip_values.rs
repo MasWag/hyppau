@@ -1,6 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Instant,
+};
 
-use log::debug;
+use log::info;
 
 use crate::automata::NFAH;
 
@@ -34,6 +37,9 @@ impl QuickSearchSkipValues {
     ///
     /// A new `QuickSearchSkipValues` instance.
     pub fn new(autom: &NFAH) -> Self {
+        // Start measuring the time it takes to construct the skip value table
+        let start = Instant::now();
+
         let shortest_length = autom.shortest_accepted_word_length();
         let accepted_prefixes = autom.accepted_prefixes(shortest_length);
         let shortest_accepted_word_length_map: Vec<usize> = (0..autom.dimensions)
@@ -86,7 +92,11 @@ impl QuickSearchSkipValues {
             skip_values_map.push(skip_values);
         }
 
-        debug!("Constructed Quick-Search-style skip value table");
+        let duration = start.elapsed();
+        info!(
+            "Constructed Quick-Search-style skip value table (Time elapsed: {:?})",
+            duration
+        );
         QuickSearchSkipValues {
             shortest_accepted_word_length_map,
             last_accepted_word,

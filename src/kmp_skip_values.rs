@@ -1,6 +1,9 @@
 use itertools::Itertools;
-use log::debug;
-use std::collections::{HashMap, HashSet, VecDeque};
+use log::info;
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    time::Instant,
+};
 use typed_arena::Arena;
 
 use crate::automata::{NFAHState, NFAH};
@@ -17,6 +20,9 @@ impl<'a> KMPSkipValues<'a> {
     ///
     /// A new `KMPSkipValues` instance.
     pub fn new(autom: &'a NFAH<'a>) -> Self {
+        // Start measuring the time it takes to construct the skip value table
+        let start = Instant::now();
+
         // Construct KMP-style skip value
         let mut skip_values = Vec::with_capacity(autom.dimensions);
         for variable in 0..autom.dimensions {
@@ -84,7 +90,11 @@ impl<'a> KMPSkipValues<'a> {
             skip_values.push(skip_value);
         }
 
-        debug!("Constructed KMP-style skip value table");
+        let duration = start.elapsed();
+        info!(
+            "Constructed KMP-style skip value table (Time elapsed: {:?})",
+            duration
+        );
         KMPSkipValues { skip_values }
     }
 }
