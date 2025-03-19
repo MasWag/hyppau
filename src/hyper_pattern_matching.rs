@@ -114,7 +114,7 @@ impl<'a> NFAHRunner<'a, PatternMatchingAutomataConfiguration<'a>>
     }
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub struct PatternMatchingAutomataConfiguration<'a> {
     /// The current state of the automaton.
     pub current_state: &'a NFAHState<'a>,

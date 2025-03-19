@@ -6,6 +6,11 @@
 # Description
 #  Generate a JSON file from the logs of GNU time.
 #
+# Prerequisites
+#  - jc (https://kellyjonbrazil.github.io/jc/docs/)
+#    - You can install jc with brew install jc on macOS (with Homebrew)
+#  - jq
+#
 # Example
 #  ./gtime_to_json.sh
 #
@@ -16,7 +21,6 @@
 #  MIT License
 ################################################################
 
-# Move to the 
 cd "$(dirname "$0")" || exit 1
 
 for file in ../logs/*.gtime.log; do

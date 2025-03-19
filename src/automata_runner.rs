@@ -1,3 +1,5 @@
+use log::trace;
+
 use crate::automata::{NFAHState, NFAHTransition, ValidLabel, NFAH};
 use std::cell::{Ref, RefCell};
 use std::collections::hash_set::Iter;
@@ -13,7 +15,7 @@ use std::rc::Rc;
 /// - `'a`: the lifetime of the automaton and its states/transitions.
 /// - `C`: the type of `NFAHConfiguration` that represents a single state of
 ///   the automaton and the positions in the input(s).
-pub trait NFAHRunner<'a, C: NFAHConfiguration<'a> + std::cmp::Eq + std::hash::Hash> {
+pub trait NFAHRunner<'a, C: NFAHConfiguration<'a> + std::cmp::Eq + std::hash::Hash + Clone> {
     /// Inserts a single new configuration into the runner's internal set.
     ///
     /// # Arguments
@@ -62,21 +64,22 @@ pub trait NFAHRunner<'a, C: NFAHConfiguration<'a> + std::cmp::Eq + std::hash::Ha
     /// Returns `true` if the configuration set has updated.
     fn consume(&mut self) -> bool {
         let initial_size = self.len();
-        let mut current_size = 0;
-        while current_size != self.len() {
-            current_size = self.len();
+        let mut configurations_to_examine = HashSet::with_capacity(self.len());
+        configurations_to_examine.extend(self.iter().cloned());
+
+        while !configurations_to_examine.is_empty() {
             let mut new_configurations = Vec::new();
 
             // Collect successors from every configuration we currently have.
-            for current_configuration in self.iter() {
+            for current_configuration in configurations_to_examine.iter() {
                 new_configurations.append(&mut current_configuration.successors());
             }
 
             // Insert all newly discovered configurations back into our set.
-            self.extend(new_configurations);
+            self.extend(new_configurations.clone());
+            configurations_to_examine = new_configurations.drain(..).collect();
         }
-
-        initial_size != current_size
+        initial_size != self.len()
     }
 }
 
@@ -230,7 +233,7 @@ pub trait NFAHConfiguration<'a> {
 /// - The current state of the automaton,
 /// - A vector of input sequences (as `ReadableView<String>`), indicating how
 ///   far each dimension of input has been read.
-#[derive(Hash, Eq, PartialEq, Debug)]
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
 pub struct SimpleAutomataConfiguration<'a> {
     /// The current state of the automaton.
     pub current_state: &'a NFAHState<'a>,
