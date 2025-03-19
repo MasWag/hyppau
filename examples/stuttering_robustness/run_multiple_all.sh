@@ -1,13 +1,13 @@
 #!/bin/sh -ue
 ################################################################
 # Name
-#  run_all.sh
+#  run_multiple_all.sh
 #
 # Description
-#  Script to run all experiments on Stuttering Robustness benchmark.
+#  Script to run all experiments on Stuttering Robustness benchmark giving multiple words.
 #
 # Example
-#  ./run_all.sh
+#  ./run_multiple.sh
 #
 # Author
 #  Masaki Waga
@@ -17,17 +17,17 @@
 ################################################################
 
 readonly MODES="naive fjs naive-filtered fjs-filtered"
-readonly INPUTS='a,b'
+readonly ACTIONS='a,b'
 readonly OUTPUTS='0,1'
-readonly INPUT_LENGTHS="200 400 600 800 1000 1200 1400 1600 1800 2000"
+readonly WORD_SIZES="2 3 4 5 6 7 8 9 10"
 readonly REPETITIONS=10
 
 cd "$(dirname "$0")" || exit 1
 
 for mode in $MODES; do
-    for input_length in $INPUT_LENGTHS; do
+    for word_size in $WORD_SIZES; do
         for _ in $(seq 1 $REPETITIONS); do
-            ./run.sh "$INPUTS" "$OUTPUTS" "$input_length" "$mode"
+            ./run_multiple.sh "$ACTIONS" "$OUTPUTS" "$word_size" "$mode"
         done
     done
 done
