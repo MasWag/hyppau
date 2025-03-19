@@ -17,7 +17,7 @@
 ################################################################
 
 readonly MODES="naive fjs naive-filtered fjs-filtered"
-readonly DIMENSIONS="2 3 4 5 6 7 8 9 10"
+readonly DIMENSIONS="2 3 4 5"
 readonly REPETITIONS=10
 
 for mode in $MODES; do
