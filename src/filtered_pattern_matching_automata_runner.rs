@@ -1,5 +1,3 @@
-use log::trace;
-
 use crate::automata::{NFAHState, NFAHTransition, ValidLabel, NFAH};
 use crate::automata_runner::ReadableView;
 use std::{
@@ -57,12 +55,6 @@ impl<'a> FilteredPatternMatchingAutomataRunner<'a> {
         self.current_configurations.retain(|c| !c.is_masked());
     }
 
-    /// Inserts a new configuration into the `HashSet`. Duplicate configurations
-    /// (i.e., those that are `Eq`) will be automatically skipped.
-    pub fn insert(&mut self, configuration: FilteredPatternMatchingAutomataConfiguration<'a>) {
-        self.current_configurations.insert(configuration);
-    }
-
     /// Returns the number of unique configurations in the `HashSet`.
     pub fn len(&self) -> usize {
         self.current_configurations.len()
@@ -102,27 +94,33 @@ impl<'a> FilteredPatternMatchingAutomataRunner<'a> {
     /// Returns `true` if the configuration set has updated.
     pub fn consume(&mut self) -> bool {
         let initial_size = self.len();
-        let mut current_size = 0;
-        while current_size != self.len() {
-            current_size = self.len();
+        let mut configurations_to_examine = HashSet::with_capacity(self.len());
+        configurations_to_examine.extend(self.iter().cloned());
+
+        while !configurations_to_examine.is_empty() {
             let mut new_configurations = Vec::new();
 
             // Collect successors from every configuration we currently have.
-            for current_configuration in self.iter() {
+            for current_configuration in configurations_to_examine.iter() {
                 new_configurations.append(&mut current_configuration.successors());
             }
 
             // Insert all newly discovered configurations back into our set.
-            for c in new_configurations.drain(..) {
-                self.insert(c);
-            }
+            self.extend(new_configurations.clone());
+            configurations_to_examine = new_configurations.drain(..).collect();
         }
-        trace!(
-            "initial_size, current_size: {}, {}",
-            initial_size,
-            current_size
-        );
-        initial_size != current_size
+        initial_size != self.len()
+    }
+}
+
+impl<'a> Extend<FilteredPatternMatchingAutomataConfiguration<'a>>
+    for FilteredPatternMatchingAutomataRunner<'a>
+{
+    fn extend<T: IntoIterator<Item = FilteredPatternMatchingAutomataConfiguration<'a>>>(
+        &mut self,
+        iter: T,
+    ) {
+        self.current_configurations.extend(iter);
     }
 }
 
@@ -130,7 +128,7 @@ fn masked_head(readable_view: &ReadableView<Option<String>>) -> bool {
     !readable_view.is_empty() && readable_view.readable_slice()[0].is_none()
 }
 
-#[derive(Hash, Eq, PartialEq, Debug)]
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub struct FilteredPatternMatchingAutomataConfiguration<'a> {
     /// The current state of the automaton.
     pub current_state: &'a NFAHState<'a>,
