@@ -29,13 +29,13 @@ for file in ../logs/*.stderr.log; do
     case $benchmark in
         network_pair)
             length=$(basename "$file" | cut -d - -f 2)
-            mode=$(basename "$file" | cut -d - -f 3)
+            mode=$(basename "$file" | cut -d - -f 3,4 | sed 's/-[0-9]\+//;')
             ;;
         *)
             length=$(basename "$file" | cut -d - -f 3)
-            mode=$(basename "$file" | cut -d - -f 4)
+            mode=$(basename "$file" | cut -d - -f 4,5 | sed 's/-[0-9]\+//;')
     esac
-    if [ "$mode" = fjs ] || [ "$mode" = fjs ]; then
+    if [ "$mode" = fjs ] || [ "$mode" = fjs-filtered ]; then
         kmp_time=$(grep kmp "$file" | tr -d ')' | sed 's/^.* //;')
         qs_time=$(grep quick "$file" | tr -d ')' | sed 's/^.* //;')
     else
