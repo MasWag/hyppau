@@ -24,7 +24,7 @@
 cd "$(dirname "$0")" || exit 1
 
 for file in ../logs/*.output.log; do
-    id=$(basename "$file" | grep -o '2025[0-9]\+-[0-9]\+')
+    id=$(basename "$file" | sed 's/.output.log//;')
     match_size="$(sort "$file" | uniq | wc -l)"
     jo -p id="$id" match_size="$match_size"
 done | jq -s .

@@ -25,7 +25,7 @@ cd "$(dirname "$0")" || exit 1
 
 for file in ../logs/*.stderr.log; do
     benchmark=$(basename "$file" | cut -d - -f 1)
-    id=$(basename "$file" | grep -o '2025[0-9]\+-[0-9]\+')
+    id=$(basename "$file" | sed 's/.stderr.log//;')
     case $benchmark in
         network_pair)
             length=$(basename "$file" | cut -d - -f 2)
