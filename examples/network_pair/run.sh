@@ -19,7 +19,7 @@
 #  MIT License
 ################################################################
 
-timestamp=$(date "+%Y%m%d-%H%M%S")
+timestamp=$(date "+%Y%m%d-%H%M%S.%3N")
 
 measure_time () {
     log_name="${LOG_DIR}/${timestamp}.gtime.log"
