@@ -20,10 +20,10 @@ readonly MODES="naive fjs naive-filtered fjs-filtered"
 readonly DIMENSIONS="2 3 4 5"
 readonly REPETITIONS=10
 
-for mode in $MODES; do
-    for dimensions in $DIMENSIONS; do
+for dimensions in $DIMENSIONS; do
+    for mode in $MODES; do
         for _ in $(seq 1 $REPETITIONS); do
-        ./run.sh "$dimensions" "$mode"
+            ./run.sh "$dimensions" "$mode"
         done
     done
 done

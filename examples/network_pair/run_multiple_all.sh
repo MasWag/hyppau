@@ -22,8 +22,8 @@ readonly REPETITIONS=10
 
 cd "$(dirname "$0")" || exit 1
 
-for mode in $MODES; do
-    for word_size in $WORD_SIZES; do
+for word_size in $WORD_SIZES; do
+    for mode in $MODES; do
         for _ in $(seq 1 $REPETITIONS); do
             ./run_multiple.sh "$word_size" "$mode"
         done

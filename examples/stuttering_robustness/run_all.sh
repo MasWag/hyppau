@@ -24,8 +24,8 @@ readonly REPETITIONS=10
 
 cd "$(dirname "$0")" || exit 1
 
-for mode in $MODES; do
-    for input_length in $INPUT_LENGTHS; do
+for input_length in $INPUT_LENGTHS; do
+    for mode in $MODES; do
         for _ in $(seq 1 $REPETITIONS); do
             ./run.sh "$INPUTS" "$OUTPUTS" "$input_length" "$mode"
         done
