@@ -1,4 +1,7 @@
-use std::{cmp::Reverse, collections::BTreeSet};
+use std::{
+    cmp::Reverse,
+    collections::{BTreeSet, HashSet},
+};
 
 use itertools::Itertools;
 use log::{debug, trace};
@@ -21,7 +24,7 @@ pub struct FJSFilteredSingleHyperPatternMatching<'a, Notifier: ResultNotifier> {
     ids: Vec<usize>,
     waiting_queue: BTreeSet<Reverse<StartPosition>>,
     /// The set of ignored starting positions by the skip values
-    skipped_positions: Vec<Vec<usize>>,
+    skipped_positions: Vec<HashSet<usize>>,
     quick_search_skip_value: QuickSearchSkipValues,
     kmp_skip_value: KMPSkipValues<'a>,
 }
@@ -43,7 +46,9 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
             .into_iter()
             .map(Reverse)
             .collect();
-        let skipped_positions = (0..automaton.dimensions).map(|_| Vec::new()).collect_vec();
+        let skipped_positions = (0..automaton.dimensions)
+            .map(|_| HashSet::new())
+            .collect_vec();
 
         automata_runner.insert_from_initial_states(input_streams.clone());
 
@@ -88,7 +93,7 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
                 if let Some(&skip_value) = self.kmp_skip_value.skip_values[i].get(c.current_state) {
                     for j in 1..skip_value {
                         if i < self.skipped_positions.len() {
-                            self.skipped_positions[i].push(c.matching_begin[i] + j);
+                            self.skipped_positions[i].insert(c.matching_begin[i] + j);
                         }
                     }
                 }
@@ -146,7 +151,7 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
                             {
                                 for j in 1..skip_value {
                                     if i < self.skipped_positions.len() {
-                                        self.skipped_positions[i].push(c.matching_begin[i] + j);
+                                        self.skipped_positions[i].insert(c.matching_begin[i] + j);
                                     }
                                 }
                             }
@@ -247,7 +252,7 @@ impl<Notifier: ResultNotifier> FJSFilteredSingleHyperPatternMatching<'_, Notifie
             // Apply the skips
             for (var, pos) in positions_to_skip {
                 if var < self.skipped_positions.len() {
-                    self.skipped_positions[var].push(pos);
+                    self.skipped_positions[var].insert(pos);
                 }
             }
         }
