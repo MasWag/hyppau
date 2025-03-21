@@ -209,7 +209,7 @@ pub trait NFAHConfiguration<'a> {
         Self: Sized,
         Self: Eq + Hash,
     {
-        let mut successors_set = HashSet::new();
+        let mut successors_set = HashSet::with_capacity(self.transitions().len());
         for transition in self.transitions().iter() {
             // Ensure transition.var is within bounds.
             transition.label.validate(self.dimensions());

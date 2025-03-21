@@ -226,7 +226,7 @@ impl<'a> FilteredPatternMatchingAutomataConfiguration<'a> {
     ///   the corresponding input sequence,
     /// - Then that matching symbol is consumed (the input is advanced).
     fn successors(&self) -> Vec<Self> {
-        let mut successors_set = HashSet::new();
+        let mut successors_set = HashSet::with_capacity(self.transitions().len());
         for transition in self.transitions().iter() {
             // Ensure transition.var is within bounds.
             transition.label.validate(self.dimensions());
