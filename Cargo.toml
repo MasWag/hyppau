@@ -16,3 +16,13 @@ log = "0.4"
 env_logger = "0.10"
 string-interner = "0.14"
 smallvec = "1.10"
+
+# For heap profiling
+dhat = { version = "0.3", optional = true }
+
+[features]
+dhat-heap = ["dhat"]  # Enable the dhat crate when dhat-heap is enabled
+
+[profile.release]
+debug = true
+
