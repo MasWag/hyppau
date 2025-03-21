@@ -104,8 +104,7 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
             if let Some(new_position) = self.waiting_queue.pop_last() {
                 let valid_successors = new_position
                     .0
-                    .immediate_successors()
-                    .filter(|successor| self.in_range(successor))
+                    .immediate_successors_filtered(|successor| self.in_range(successor))
                     .map(Reverse)
                     .collect_vec();
 

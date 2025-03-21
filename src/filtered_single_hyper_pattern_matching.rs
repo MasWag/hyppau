@@ -200,8 +200,7 @@ impl<Notifier: ResultNotifier> NaiveFilteredSingleHyperPatternMatching<'_, Notif
             let skipped_streams = self.skipped_streams(&examined_position);
 
             examined_position
-                .immediate_successors()
-                .filter(|successor| self.in_range(successor))
+                .immediate_successors_filtered(|successor| self.in_range(successor))
                 .for_each(|successor| {
                     // trace!("successor: {:?}", successor);
                     if self.is_skipped(&successor) {

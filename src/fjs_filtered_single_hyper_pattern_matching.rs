@@ -284,8 +284,7 @@ impl<Notifier: ResultNotifier> FJSFilteredSingleHyperPatternMatching<'_, Notifie
             let skipped_streams = self.skipped_streams(&examined_position);
 
             let successor_candidates = examined_position
-                .immediate_successors()
-                .filter(|successor| self.in_range(successor))
+                .immediate_successors_filtered(|successor| self.in_range(successor))
                 .collect_vec();
 
             for successor in successor_candidates.into_iter() {

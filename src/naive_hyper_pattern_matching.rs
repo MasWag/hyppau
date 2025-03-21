@@ -23,6 +23,26 @@ impl StartPosition {
             }
         })
     }
+    pub fn immediate_successors_filtered<'a, F>(
+        &'a self,
+        predicate: F,
+    ) -> impl Iterator<Item = StartPosition> + 'a
+    where
+        F: Fn(&StartPosition) -> bool + 'a,
+    {
+        let mut temporary_start_indices = self.clone();
+        (0..self.start_indices.len()).filter_map(move |i| {
+            temporary_start_indices.start_indices[i] += 1;
+            if predicate(&temporary_start_indices) {
+                let new_start_indices = temporary_start_indices.clone();
+                temporary_start_indices.start_indices[i] -= 1;
+                Some(new_start_indices)
+            } else {
+                temporary_start_indices.start_indices[i] -= 1;
+                None
+            }
+        })
+    }
 }
 
 impl PartialOrd for StartPosition {
@@ -148,8 +168,7 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for NaiveHyperPatternMatchin
                 // Start new matching trial
                 if let Some(new_position) = new_position {
                     let mut valid_successors = new_position
-                        .immediate_successors()
-                        .filter(|successor| self.in_range(successor, &id))
+                        .immediate_successors_filtered(|successor| self.in_range(successor, &id))
                         .collect_vec();
                     // Put the successors to the waiting queue
                     let waiting_queue = self.waiting_queues.get_mut(&id).unwrap();
@@ -201,8 +220,7 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for NaiveHyperPatternMatchin
                 // Start new matching trial
                 if let Some(new_position) = new_position {
                     let mut valid_successors = new_position
-                        .immediate_successors()
-                        .filter(|successor| self.in_range(successor, &id))
+                        .immediate_successors_filtered(|successor| self.in_range(successor, &id))
                         .collect_vec();
                     // Put the successors to the waiting queue
                     let waiting_queue = self.waiting_queues.get_mut(&id).unwrap();

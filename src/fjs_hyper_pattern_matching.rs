@@ -265,8 +265,7 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
                 if let Some(new_position) = new_position {
                     let mut valid_successors = new_position
                         .0
-                        .immediate_successors()
-                        .filter(|successor| {
+                        .immediate_successors_filtered(|successor| {
                             self.in_range(successor, &id)
                                 && self.skipped_starting_positions.matchable(successor, &id)
                         })
@@ -323,8 +322,7 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
                 if let Some(new_position) = new_position {
                     let mut valid_successors = new_position
                         .0
-                        .immediate_successors()
-                        .filter(|successor| {
+                        .immediate_successors_filtered(|successor| {
                             self.in_range(successor, &id)
                                 && self.skipped_starting_positions.matchable(successor, &id)
                         })
