@@ -263,6 +263,9 @@ impl<Notifier: ResultNotifier> FJSSingleHyperPatternMatching<'_, Notifier> {
                     }
                 }
             }
+            // Remove duplicates
+            waiting_queue.sort_by(|a, b| b.cmp(a));
+            waiting_queue.dedup();
         }
 
         valid_successors

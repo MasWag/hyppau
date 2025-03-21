@@ -217,6 +217,10 @@ impl<Notifier: ResultNotifier> NaiveFilteredSingleHyperPatternMatching<'_, Notif
                         valid_successors.push(successor);
                     }
                 });
+
+            // Remove duplicates
+            waiting_queue.sort_by(|a, b| b.cmp(a));
+            waiting_queue.dedup();
         }
 
         valid_successors
