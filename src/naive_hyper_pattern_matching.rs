@@ -14,17 +14,14 @@ pub struct StartPosition {
 }
 
 impl StartPosition {
-    pub fn immediate_successors(&self) -> Vec<StartPosition> {
-        let mut result = Vec::with_capacity(self.start_indices.len());
-        for i in 0..self.start_indices.len() {
+    pub fn immediate_successors(&self) -> impl Iterator<Item = StartPosition> + '_ {
+        (0..self.start_indices.len()).map(|i| {
             let mut new_start_indices = self.start_indices.clone();
             new_start_indices[i] += 1;
-            result.push(StartPosition {
+            StartPosition {
                 start_indices: new_start_indices,
-            });
-        }
-
-        result
+            }
+        })
     }
 }
 
@@ -64,7 +61,6 @@ impl<'a, Notifier: ResultNotifier> NaiveHyperPatternMatching<'a, Notifier> {
         let start_indices = vec![0; automaton.dimensions];
         let successors = StartPosition { start_indices }
             .immediate_successors()
-            .into_iter()
             .collect_vec();
         let ranges = vec![0..sequences.len(); automaton.dimensions];
         let ids = ranges.into_iter().multi_cartesian_product().collect_vec();
@@ -153,7 +149,6 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for NaiveHyperPatternMatchin
                 if let Some(new_position) = new_position {
                     let mut valid_successors = new_position
                         .immediate_successors()
-                        .into_iter()
                         .filter(|successor| self.in_range(successor, &id))
                         .collect_vec();
                     // Put the successors to the waiting queue
@@ -207,7 +202,6 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for NaiveHyperPatternMatchin
                 if let Some(new_position) = new_position {
                     let mut valid_successors = new_position
                         .immediate_successors()
-                        .into_iter()
                         .filter(|successor| self.in_range(successor, &id))
                         .collect_vec();
                     // Put the successors to the waiting queue

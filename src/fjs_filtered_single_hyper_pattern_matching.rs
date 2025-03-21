@@ -43,7 +43,6 @@ impl<'a, Notifier: ResultNotifier> FilteredSingleHyperPatternMatching<'a, Notifi
         let start_indices = vec![0; automaton.dimensions];
         let waiting_queue = StartPosition { start_indices }
             .immediate_successors()
-            .into_iter()
             .map(Reverse)
             .collect();
         let skipped_positions = (0..automaton.dimensions)
@@ -286,7 +285,6 @@ impl<Notifier: ResultNotifier> FJSFilteredSingleHyperPatternMatching<'_, Notifie
 
             let successor_candidates = examined_position
                 .immediate_successors()
-                .into_iter()
                 .filter(|successor| self.in_range(successor))
                 .collect_vec();
 

@@ -64,7 +64,6 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
         let start_indices = vec![0; automaton.dimensions];
         let waiting_queue = StartPosition { start_indices }
             .immediate_successors()
-            .into_iter()
             .map(Reverse)
             .collect();
         automata_runner.insert_from_initial_states(input_streams.clone(), ids.clone());
@@ -106,7 +105,6 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
                 let valid_successors = new_position
                     .0
                     .immediate_successors()
-                    .into_iter()
                     .filter(|successor| self.in_range(successor))
                     .map(Reverse)
                     .collect_vec();

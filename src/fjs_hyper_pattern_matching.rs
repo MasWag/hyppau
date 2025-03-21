@@ -89,7 +89,6 @@ impl<'a, Notifier: ResultNotifier> FJSHyperPatternMatching<'a, Notifier> {
         let start_indices = vec![0; automaton.dimensions];
         let successors = StartPosition { start_indices }
             .immediate_successors()
-            .into_iter()
             .map(Reverse)
             .collect_vec();
         let ranges = vec![0..sequences.len(); automaton.dimensions];
@@ -267,7 +266,6 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
                     let mut valid_successors = new_position
                         .0
                         .immediate_successors()
-                        .into_iter()
                         .filter(|successor| {
                             self.in_range(successor, &id)
                                 && self.skipped_starting_positions.matchable(successor, &id)
@@ -326,7 +324,6 @@ impl<Notifier: ResultNotifier> HyperPatternMatching for FJSHyperPatternMatching<
                     let mut valid_successors = new_position
                         .0
                         .immediate_successors()
-                        .into_iter()
                         .filter(|successor| {
                             self.in_range(successor, &id)
                                 && self.skipped_starting_positions.matchable(successor, &id)

@@ -226,22 +226,21 @@ impl<'a> FilteredPatternMatchingAutomataConfiguration<'a> {
     ///   the corresponding input sequence,
     /// - Then that matching symbol is consumed (the input is advanced).
     fn successors(&self) -> Vec<Self> {
-        let mut successors_set = HashSet::with_capacity(self.transitions().len());
+        let mut successors = Vec::with_capacity(self.transitions().len());
         for transition in self.transitions().iter() {
             // Ensure transition.var is within bounds.
             transition.label.validate(self.dimensions());
-            // Create a tentative successor configuration.
-            let mut successor = self.duplicate(transition.next_state);
             // Check if the transition is applicable.
             let head = self.input_head(transition.label.1);
             if head.is_none() || transition.label.0 != head.unwrap() {
                 continue;
             }
+            // Create a tentative successor configuration.
+            let mut successor = self.duplicate(transition.next_state);
             // Consume one symbol on the input for the given dimension.
             successor.input_advance(transition.label.1, 1);
-            // Insert into the HashSet for deduplication.
-            successors_set.insert(successor);
+            successors.push(successor);
         }
-        successors_set.into_iter().collect()
+        successors
     }
 }
