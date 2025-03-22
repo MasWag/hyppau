@@ -1,6 +1,7 @@
-use std::{cmp::Reverse, collections::BTreeSet};
+use std::collections::BTreeSet;
 
 use itertools::Itertools;
+use log::trace;
 
 use crate::{
     automata::NFAH,
@@ -48,7 +49,7 @@ pub struct NaiveSingleHyperPatternMatching<'a, Notifier: ResultNotifier> {
     notifier: Notifier,
     input_streams: Vec<ReadableView<String>>,
     ids: Vec<usize>,
-    waiting_queue: BTreeSet<Reverse<StartPosition>>,
+    waiting_queue: BTreeSet<StartPosition>,
 }
 
 impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
@@ -64,7 +65,6 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
         let start_indices = vec![0; automaton.dimensions];
         let waiting_queue = StartPosition { start_indices }
             .immediate_successors()
-            .map(Reverse)
             .collect();
         automata_runner.insert_from_initial_states(input_streams.clone(), ids.clone());
 
@@ -101,11 +101,13 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
         self.automata_runner.remove_non_waiting_configurations();
         while self.automata_runner.is_empty() {
             // Start new matching trial
-            if let Some(new_position) = self.waiting_queue.pop_last() {
+            if let Some(new_position) = self.waiting_queue.pop_first() {
                 let valid_successors = new_position
-                    .0
-                    .immediate_successors_filtered(|successor| self.in_range(successor))
-                    .map(Reverse)
+                    // We do not generate immediate successors that are also successors of other elements in the waiting queue
+                    .immediate_successors_filtered(|successor| {
+                        self.in_range(&successor)
+                            && !self.waiting_queue.iter().any(|p| successor.is_successor(p))
+                    })
                     .collect_vec();
 
                 // Put the successors to the waiting queue
@@ -113,8 +115,7 @@ impl<'a, Notifier: ResultNotifier> SingleHyperPatternMatching<'a, Notifier>
 
                 let mut input_streams = self.input_streams.clone();
                 for variable in 0..dimensions {
-                    input_streams[variable]
-                        .advance_readable(new_position.0.start_indices[variable]);
+                    input_streams[variable].advance_readable(new_position.start_indices[variable]);
                 }
                 self.automata_runner
                     .insert_from_initial_states(input_streams, self.ids.clone());

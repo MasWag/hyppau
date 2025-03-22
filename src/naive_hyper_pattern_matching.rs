@@ -43,6 +43,19 @@ impl StartPosition {
             }
         })
     }
+
+    /// Returns true if the current start position is a successor of the other start position.
+    pub fn is_successor(&self, other: &StartPosition) -> bool {
+        if self.start_indices.len() != other.start_indices.len() {
+            return false;
+        }
+        for i in 0..self.start_indices.len() {
+            if self.start_indices[i] < other.start_indices[i] {
+                return false;
+            }
+        }
+        return true;
+    }
 }
 
 impl PartialOrd for StartPosition {
