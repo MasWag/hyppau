@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use log::info;
+use log::{debug, info};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     time::Instant,
@@ -95,6 +95,7 @@ impl<'a> KMPSkipValues<'a> {
             "Constructed KMP-style skip value table (Time elapsed: {:?})",
             duration
         );
+        debug!("skip_values: {:?}", skip_values);
         KMPSkipValues { skip_values }
     }
 }

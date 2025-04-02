@@ -3,7 +3,7 @@ use std::{
     time::Instant,
 };
 
-use log::info;
+use log::{debug, info, trace};
 
 use crate::automata::NFAH;
 
@@ -79,13 +79,13 @@ impl QuickSearchSkipValues {
             let mut skip_values = HashMap::new();
             let shortest_accepted_word_length = shortest_accepted_word_length_map[var];
             for word in accepted_words[var].iter() {
-                for i in 0..shortest_accepted_word_length_map[var] {
-                    if !skip_values
-                        .contains_key(word[shortest_accepted_word_length - 1 - i].as_str())
-                    {
-                        skip_values
-                            .insert(word[shortest_accepted_word_length - 1 - i].clone(), i + 1);
+                for i in 0..shortest_accepted_word_length {
+                    let key = &word[shortest_accepted_word_length - 1 - i];
+                    if !skip_values.contains_key(key) {
+                        skip_values.insert(key.clone(), i + 1);
                         break;
+                    } else if skip_values[key] > i + 1 {
+                        *skip_values.get_mut(key).unwrap() = i + 1;
                     }
                 }
             }
@@ -97,6 +97,10 @@ impl QuickSearchSkipValues {
             "Constructed Quick-Search-style skip value table (Time elapsed: {:?})",
             duration
         );
+        debug!("shortest_accepted_word_length: {:?}", shortest_accepted_word_length_map);
+        debug!("last_accepted_word_length: {:?}", last_accepted_word);
+        debug!("skip_values_map: {:?}", skip_values_map);
+        debug!("Note: The skip value is shortest_accepted_word_length + 1 for letters not in the above map.");
         QuickSearchSkipValues {
             shortest_accepted_word_length_map,
             last_accepted_word,
