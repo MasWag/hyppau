@@ -29,6 +29,8 @@ timestamp=$(date "+%Y%m%d-%H%M%S.%3N")
 
 measure_time () {
     log_name="${LOG_DIR}/${timestamp}.gtime.log"
+    # Add a brief delay to prevent I/O related errors
+    sleep 1
     # find gtime on macOS
     if [ "$(uname)" = 'Darwin' ]; then
         gtime -v -o "$log_name" "$@"
