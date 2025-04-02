@@ -33,6 +33,7 @@ where
         let sequences = (0..word_size)
             .map(|_| AppendOnlySequence::new())
             .collect_vec();
+
         let mut filters = HashMap::with_capacity(automaton.dimensions * sequences.len());
         let enfa_state_arena = Arena::new();
         let enfa_transition_arena = Arena::new();
@@ -60,7 +61,7 @@ where
         let ranges = vec![0..sequences.len(); automaton.dimensions];
         let ids = ranges.into_iter().multi_cartesian_product().collect_vec();
         let mut single_matchings = Vec::with_capacity(ids.len());
-        for id_vec in &ids {
+        for id_vec in ids.into_iter() {
             let mut input_streams = Vec::with_capacity(id_vec.len());
             for variable in 0..id_vec.len() {
                 let word_id = id_vec[variable];
@@ -77,7 +78,7 @@ where
                 automaton,
                 notifier.clone(),
                 input_streams,
-                id_vec.clone(),
+                id_vec,
             ));
         }
 
