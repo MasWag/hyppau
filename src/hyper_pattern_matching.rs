@@ -114,7 +114,7 @@ impl<'a> NFAHRunner<'a, PatternMatchingAutomataConfiguration<'a>>
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
 pub struct PatternMatchingAutomataConfiguration<'a> {
     /// The current state of the automaton.
     pub current_state: &'a NFAHState<'a>,
@@ -130,14 +130,14 @@ pub struct PatternMatchingAutomataConfiguration<'a> {
     pub ids: Vec<usize>,
 }
 
-impl Hash for PatternMatchingAutomataConfiguration<'_> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.current_state.hash(state);
-        self.matching_begin.hash(state);
-        // We ignore input_sequence when computing the hash value.
-        self.ids.hash(state);
-    }
-}
+// impl Hash for PatternMatchingAutomataConfiguration<'_> {
+//     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+//         self.current_state.hash(state);
+//         self.matching_begin.hash(state);
+//         // We ignore input_sequence when computing the hash value.
+//         self.ids.hash(state);
+//     }
+// }
 
 impl<'a> PatternMatchingAutomataConfiguration<'a> {
     /// Creates a new `PatternMatchingAutomataConfiguration` from the given state and
