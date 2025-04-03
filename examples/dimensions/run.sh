@@ -6,6 +6,9 @@
 # Description
 #  Script to run experiments on Dimension benchmark.
 #
+# Prerequisites
+# - Timeout in GNU coreutils
+#
 # Synopsis
 #  ./run.sh [dimensions] [mode]
 #
@@ -26,6 +29,7 @@ chr () {
 }
 
 timestamp=$(date "+%Y%m%d-%H%M%S.%3N")
+readonly TIMEOUT=600 # We set the timeout to 10 minutes
 
 measure_time () {
     log_name="${LOG_DIR}/${timestamp}.gtime.log"
@@ -33,9 +37,9 @@ measure_time () {
     sleep 1
     # find gtime on macOS
     if [ "$(uname)" = 'Darwin' ]; then
-        gtime -v -o "$log_name" "$@"
+        gtime -v -o "$log_name" timeout $TIMEOUT "$@"
     else
-        /usr/bin/time -v -o "$log_name" "$@"
+        /usr/bin/time -v -o "$log_name" timeout $TIMEOUT "$@"
     fi
 }
 
